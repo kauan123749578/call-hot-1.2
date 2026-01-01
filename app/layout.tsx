@@ -10,7 +10,11 @@ const brandFont = Orbitron({
 
 export const metadata: Metadata = {
   title: "CallHot",
-  description: "Dashboard e simulador de ligação por link"
+  description: "Dashboard e simulador de ligação por link",
+  icons: {
+    icon: "/icon.png",
+    apple: "/icon.png",
+  }
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
