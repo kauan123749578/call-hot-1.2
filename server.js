@@ -1122,7 +1122,10 @@ const nextHandler = nextApp.getRequestHandler();
 
 app.all('*', (req, res) => nextHandler(req, res));
 
-const PORT = process.env.PORT || 3000;
+// Força porta 3000 para evitar conflito com projeto 1 (porta 8080)
+// IMPORTANTE: No Railway, configure a porta de destino como 3000 nas Configurações → Domínios
+// E remova a variável de ambiente PORT se ela estiver definida como 8080
+const PORT = 3000; // Sempre usa 3000 para este projeto
 const HOST = process.env.HOST || '0.0.0.0';
 async function start() {
   loadCallsFromDisk();
