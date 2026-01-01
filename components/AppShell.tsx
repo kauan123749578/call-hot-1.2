@@ -38,7 +38,16 @@ export function AppShell({
           >
             ≡
           </button>
-          <div className="font-brand text-base font-black text-white">CallHot</div>
+          <div className="flex items-center gap-2">
+            <svg width="24" height="24" viewBox="0 0 80 80" className="drop-shadow-[0_0_8px_rgba(214,31,31,0.4)]">
+              <circle cx="40" cy="40" r="38" fill="#1a1a1a" stroke="#d61f1f" strokeWidth="2" />
+              <polygon points="30,25 30,55 55,40" fill="#d61f1f" />
+              <circle cx="60" cy="20" r="8" fill="#d61f1f" />
+              <rect x="56" y="24" width="8" height="4" fill="#d61f1f" rx="1" />
+              <rect x="58" y="28" width="4" height="2" fill="#d61f1f" rx="1" />
+            </svg>
+            <span className="font-brand text-base font-black text-white">CallHot</span>
+          </div>
           <div className="w-10" />
         </div>
       </div>
@@ -62,11 +71,13 @@ export function AppShell({
         >
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-red-600">
-                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-white">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-              </div>
+              <svg width="40" height="40" viewBox="0 0 80 80" className="drop-shadow-[0_0_10px_rgba(214,31,31,0.4)]">
+                <circle cx="40" cy="40" r="38" fill="#1a1a1a" stroke="#d61f1f" strokeWidth="2" />
+                <polygon points="30,25 30,55 55,40" fill="#d61f1f" />
+                <circle cx="60" cy="20" r="8" fill="#d61f1f" />
+                <rect x="56" y="24" width="8" height="4" fill="#d61f1f" rx="1" />
+                <rect x="58" y="28" width="4" height="2" fill="#d61f1f" rx="1" />
+              </svg>
               <div>
                 <div className="text-xl font-black text-white">CALL</div>
                 <div className="text-xl font-black text-red-600">HOT</div>
