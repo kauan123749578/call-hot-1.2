@@ -1123,12 +1123,15 @@ const nextHandler = nextApp.getRequestHandler();
 app.all('*', (req, res) => nextHandler(req, res));
 
 const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
 async function start() {
   loadCallsFromDisk();
   loadAutomationsFromDisk();
   loadTelegramBots();
   await nextApp.prepare();
-  server.listen(PORT, () => console.log(`🚀 Rodando na porta ${PORT}`));
+  server.listen(PORT, HOST, () => {
+    console.log(`🚀 Rodando na porta ${PORT} (host: ${HOST})`);
+  });
 }
 start().catch(e => {
   console.error(e);
