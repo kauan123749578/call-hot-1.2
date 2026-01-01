@@ -518,7 +518,7 @@ function initializeTelegramBot(userId, token, automationId, botMessages) {
           } else if (process.env.RENDER_EXTERNAL_URL) {
             baseUrl = process.env.RENDER_EXTERNAL_URL;
           } else {
-            baseUrl = 'http://localhost:8080';
+            baseUrl = 'http://localhost:3000';
           }
         }
         const chatUrl = `${baseUrl}/ring/${callId}`;
@@ -1122,7 +1122,7 @@ const nextHandler = nextApp.getRequestHandler();
 
 app.all('*', (req, res) => nextHandler(req, res));
 
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 3000;
 async function start() {
   loadCallsFromDisk();
   loadAutomationsFromDisk();
