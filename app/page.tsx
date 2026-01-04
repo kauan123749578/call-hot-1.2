@@ -65,6 +65,7 @@ export default function DashboardPage() {
   const [toast, setToast] = React.useState<string | null>(null);
   const [createdLink, setCreatedLink] = React.useState<string | null>(null);
   const [createdCallAmount, setCreatedCallAmount] = React.useState<number | null>(null);
+  const [progress, setProgress] = React.useState<{ percent: number; message: string; seconds: number } | null>(null);
 
   function showToast(message: string) {
     setToast(message);
@@ -180,13 +181,57 @@ export default function DashboardPage() {
 
   async function createCall() {
     setLoading(true);
+    setProgress({ percent: 0, message: "Iniciando...", seconds: 0 });
+    
+    let progressInterval: ReturnType<typeof setInterval> | null = null;
+    let secondsElapsed = 0;
+    
+    // Simula progresso com timer
+    progressInterval = setInterval(() => {
+      secondsElapsed++;
+      setProgress(prev => {
+        if (!prev) return null;
+        // Simula progresso: 0-30% upload, 30-70% processamento, 70-100% finalização
+        let percent = 0;
+        let message = "";
+        
+        if (secondsElapsed <= 2) {
+          percent = Math.min(30, (secondsElapsed / 2) * 30);
+          message = "Enviando arquivos...";
+        } else if (secondsElapsed <= 4) {
+          percent = 30 + Math.min(40, ((secondsElapsed - 2) / 2) * 40);
+          message = "Processando vídeo...";
+        } else {
+          percent = 70 + Math.min(30, ((secondsElapsed - 4) / 2) * 30);
+          message = "Finalizando chamada...";
+        }
+        
+        return { percent: Math.min(100, percent), message, seconds: secondsElapsed };
+      });
+    }, 500);
+    
     try {
+      setProgress({ percent: 10, message: "Preparando upload...", seconds: 0 });
+      
       let vUrl = videoUrl;
       let aUrl = avatarUrl;
-      if (videoFile && !vUrl) vUrl = await uploadVideo(videoFile);
+      
+      if (videoFile && !vUrl) {
+        setProgress({ percent: 20, message: "Enviando vídeo...", seconds: secondsElapsed });
+        vUrl = await uploadVideo(videoFile);
+        setProgress({ percent: 50, message: "Vídeo enviado!", seconds: secondsElapsed });
+      }
+      
       if (!vUrl) throw new Error("Selecione um vídeo");
-      if (avatarFile && !aUrl) aUrl = await uploadAvatar(avatarFile);
+      
+      if (avatarFile && !aUrl) {
+        setProgress({ percent: 60, message: "Enviando avatar...", seconds: secondsElapsed });
+        aUrl = await uploadAvatar(avatarFile);
+        setProgress({ percent: 70, message: "Avatar enviado!", seconds: secondsElapsed });
+      }
 
+      setProgress({ percent: 80, message: "Criando chamada...", seconds: secondsElapsed });
+      
       const resp = await apiFetch("/api/create-call", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -198,8 +243,13 @@ export default function DashboardPage() {
           expectedAmount: expectedAmount || null
         })
       });
+      
+      setProgress({ percent: 95, message: "Quase pronto...", seconds: secondsElapsed });
+      
       const data = await resp.json();
       if (!resp.ok) throw new Error(data?.error || "Erro ao criar call");
+      
+      setProgress({ percent: 100, message: "Chamada criada!", seconds: secondsElapsed });
 
       const link = `${window.location.origin}${data.ringUrl}`;
       // REMOVIDO: navigator.clipboard.writeText(link); 
@@ -225,11 +275,19 @@ export default function DashboardPage() {
 
       await refresh();
       
+      // Limpa progresso após 1 segundo
+      setTimeout(() => {
+        setProgress(null);
+      }, 1000);
+      
       // Fecha o modal após 10 segundos
       setTimeout(() => setCreatedLink(null), 10000);
     } catch (e: any) {
+      if (progressInterval) clearInterval(progressInterval);
+      setProgress(null);
       showToast(e?.message || "Falha ao criar call");
     } finally {
+      if (progressInterval) clearInterval(progressInterval);
       setLoading(false);
     }
   }
@@ -497,6 +555,26 @@ export default function DashboardPage() {
               >
                 {loading ? "Criando..." : "Criar Chamada"}
               </button>
+              
+              {/* Indicador de Progresso */}
+              {progress && (
+                <div className="mt-4 space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-400 font-medium">{progress.message}</span>
+                    <span className="text-emerald-400 font-bold">{Math.round(progress.percent)}%</span>
+                  </div>
+                  <div className="w-full bg-neutral-800 rounded-full h-2 overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500 ease-out rounded-full"
+                      style={{ width: `${progress.percent}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-gray-500">
+                    <span>Tempo decorrido: {progress.seconds}s</span>
+                    <span>Tempo estimado: {Math.max(1, Math.ceil((100 - progress.percent) / 10))}s</span>
+                  </div>
+                </div>
+              )}
             </div>
           </form>
         </div>

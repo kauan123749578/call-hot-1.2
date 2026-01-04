@@ -36,6 +36,7 @@ const eventsFile = path.join(dataDir, 'events.json');
 const salesFile = path.join(dataDir, 'sales.json');
 const automationsFile = path.join(dataDir, 'automations.json');
 const telegramBotsFile = path.join(dataDir, 'telegram-bots.json');
+const conversationsFile = path.join(dataDir, 'conversations.json');
 
 function ensureDataDir() {
   if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
@@ -46,6 +47,7 @@ function ensureDataDir() {
   if (!fs.existsSync(salesFile)) fs.writeFileSync(salesFile, JSON.stringify({ sales: [] }, null, 2));
   if (!fs.existsSync(automationsFile)) fs.writeFileSync(automationsFile, JSON.stringify({ automations: [] }, null, 2));
   if (!fs.existsSync(telegramBotsFile)) fs.writeFileSync(telegramBotsFile, JSON.stringify({ bots: [] }, null, 2));
+  if (!fs.existsSync(conversationsFile)) fs.writeFileSync(conversationsFile, JSON.stringify({ conversations: [] }, null, 2));
 }
 
 function readJson(filePath, fallback) {
@@ -84,6 +86,90 @@ function listSales() {
 
 function saveSales(sales) {
   writeJson(salesFile, { sales });
+}
+
+// Sistema de Conversas e Chat
+const conversations = new Map(); // callId -> { callId, callerName, messages: [], active: true, createdAt, updatedAt }
+
+function loadConversationsFromDisk() {
+  try {
+    ensureDataDir();
+    if (!fs.existsSync(conversationsFile)) return;
+    const raw = fs.readFileSync(conversationsFile, 'utf-8');
+    const parsed = JSON.parse(raw);
+    const items = Array.isArray(parsed?.conversations) ? parsed.conversations : [];
+    items.forEach((conv) => {
+      if (!conv?.callId) return;
+      conversations.set(conv.callId, {
+        callId: conv.callId,
+        callerName: conv.callerName || null,
+        messages: Array.isArray(conv.messages) ? conv.messages : [],
+        active: conv.active !== false,
+        createdAt: conv.createdAt || new Date().toISOString(),
+        updatedAt: conv.updatedAt || new Date().toISOString(),
+        ownerUserId: conv.ownerUserId || null
+      });
+    });
+  } catch (e) {
+    console.error('Erro ao carregar conversas:', e);
+  }
+}
+
+function persistConversations() {
+  try {
+    ensureDataDir();
+    const out = [];
+    for (const [callId, conv] of conversations.entries()) {
+      out.push({
+        callId: conv.callId,
+        callerName: conv.callerName || null,
+        messages: conv.messages || [],
+        active: conv.active !== false,
+        createdAt: conv.createdAt || new Date().toISOString(),
+        updatedAt: conv.updatedAt || new Date().toISOString(),
+        ownerUserId: conv.ownerUserId || null
+      });
+    }
+    out.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    writeJson(conversationsFile, { conversations: out });
+  } catch (e) {
+    console.error('Erro ao persistir conversas:', e);
+  }
+}
+
+function getOrCreateConversation(callId, callerName, ownerUserId) {
+  if (!conversations.has(callId)) {
+    conversations.set(callId, {
+      callId,
+      callerName: callerName || null,
+      messages: [],
+      active: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      ownerUserId: ownerUserId || null
+    });
+    persistConversations();
+  }
+  return conversations.get(callId);
+}
+
+function addMessageToConversation(callId, text, fromUser = false, ownerUserId = null) {
+  const conv = conversations.get(callId);
+  if (!conv) return null;
+  
+  const message = {
+    id: uuidv4(),
+    text,
+    fromUser,
+    timestamp: new Date().toISOString()
+  };
+  
+  conv.messages.push(message);
+  conv.updatedAt = new Date().toISOString();
+  conversations.set(callId, conv);
+  persistConversations();
+  
+  return message;
 }
 
 function parseCurrencyToNumber(input) {
@@ -807,6 +893,53 @@ app.post('/api/track', (req, res) => {
   res.json({ ok: true });
 });
 
+// --- API CONVERSAS E CHAT ---
+app.get('/api/conversations', requireAuth, (req, res) => {
+  const list = Array.from(conversations.values())
+    .filter(c => c.ownerUserId === req.userId)
+    .map(c => ({
+      callId: c.callId,
+      callerName: c.callerName,
+      messageCount: c.messages.length,
+      lastMessage: c.messages[c.messages.length - 1] || null,
+      active: c.active,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt
+    }))
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  res.json({ conversations: list });
+});
+
+app.get('/api/conversation/:callId', requireAuth, (req, res) => {
+  const conv = conversations.get(req.params.callId);
+  if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+  if (conv.ownerUserId !== req.userId) return res.status(403).json({ error: 'Sem permissão' });
+  res.json({ conversation: conv });
+});
+
+app.post('/api/conversation/:callId/message', requireAuth, (req, res) => {
+  const { text } = req.body;
+  const conv = conversations.get(req.params.callId);
+  if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+  if (conv.ownerUserId !== req.userId) return res.status(403).json({ error: 'Sem permissão' });
+  
+  const message = addMessageToConversation(req.params.callId, text, false, req.userId);
+  
+  // Enviar via WebSocket para clientes conectados
+  if (chatClients.has(req.params.callId)) {
+    chatClients.get(req.params.callId).forEach(clientWs => {
+      if (clientWs.readyState === WebSocket.OPEN) {
+        clientWs.send(JSON.stringify({
+          type: 'new_message',
+          message
+        }));
+      }
+    });
+  }
+  
+  res.json({ message });
+});
+
 // --- API AUTOMAÇÕES ---
 // Endpoint público para gerar call a partir de automação
 app.post('/api/automation/:secret', (req, res) => {
@@ -1120,6 +1253,147 @@ const dev = process.env.NODE_ENV !== 'production';
 const nextApp = next({ dev, dir: __dirname });
 const nextHandler = nextApp.getRequestHandler();
 
+// WebSocket Handler para Chat
+const chatClients = new Map(); // callId -> Set of WebSocket connections
+const adminClients = new Map(); // userId -> Set of WebSocket connections
+
+wss.on('connection', (ws, req) => {
+  let callId = null;
+  let userId = null;
+  let role = null;
+
+  ws.on('message', (data) => {
+    try {
+      const msg = JSON.parse(data.toString());
+      
+      if (msg.type === 'join') {
+        callId = msg.callId;
+        userId = msg.userId;
+        role = msg.role || 'guest';
+        
+        if (role === 'admin' && userId) {
+          // Admin conectando ao dashboard
+          if (!adminClients.has(userId)) {
+            adminClients.set(userId, new Set());
+          }
+          adminClients.get(userId).add(ws);
+          
+          // Enviar histórico de conversas ativas
+          const activeConvs = Array.from(conversations.values())
+            .filter(c => c.active && c.ownerUserId === userId)
+            .map(c => ({
+              callId: c.callId,
+              callerName: c.callerName,
+              messageCount: c.messages.length,
+              lastMessage: c.messages[c.messages.length - 1] || null,
+              updatedAt: c.updatedAt
+            }));
+          
+          ws.send(JSON.stringify({
+            type: 'conversations_list',
+            conversations: activeConvs
+          }));
+        } else if (callId) {
+          // Cliente conectando durante chamada
+          if (!chatClients.has(callId)) {
+            chatClients.set(callId, new Set());
+          }
+          chatClients.get(callId).add(ws);
+          
+          // Enviar histórico de mensagens
+          const conv = conversations.get(callId);
+          if (conv) {
+            ws.send(JSON.stringify({
+              type: 'chat_history',
+              messages: conv.messages
+            }));
+          }
+        }
+      } else if (msg.type === 'chat_message' && callId) {
+        // Mensagem do cliente
+        const call = calls.get(callId);
+        if (!call) return;
+        
+        const conv = getOrCreateConversation(callId, call.callerName, call.ownerUserId);
+        const message = addMessageToConversation(callId, msg.text, true, call.ownerUserId);
+        
+        if (message) {
+          // Enviar para todos os admins do dono da call
+          if (call.ownerUserId && adminClients.has(call.ownerUserId)) {
+            adminClients.get(call.ownerUserId).forEach(adminWs => {
+              if (adminWs.readyState === WebSocket.OPEN) {
+                adminWs.send(JSON.stringify({
+                  type: 'new_message',
+                  callId,
+                  message
+                }));
+              }
+            });
+          }
+          
+          // Confirmar recebimento para o cliente
+          ws.send(JSON.stringify({
+            type: 'message_sent',
+            messageId: message.id
+          }));
+        }
+      } else if (msg.type === 'admin_message' && msg.callId && userId) {
+        // Mensagem do admin
+        const conv = conversations.get(msg.callId);
+        if (!conv || conv.ownerUserId !== userId) return;
+        
+        const message = addMessageToConversation(msg.callId, msg.text, false, userId);
+        
+        if (message) {
+          // Enviar para todos os clientes conectados nessa call
+          if (chatClients.has(msg.callId)) {
+            chatClients.get(msg.callId).forEach(clientWs => {
+              if (clientWs.readyState === WebSocket.OPEN) {
+                clientWs.send(JSON.stringify({
+                  type: 'new_message',
+                  message
+                }));
+              }
+            });
+          }
+        }
+      } else if (msg.type === 'join_conversation' && msg.callId && userId) {
+        // Admin quer ver uma conversa específica
+        const conv = conversations.get(msg.callId);
+        if (conv && conv.ownerUserId === userId) {
+          ws.send(JSON.stringify({
+            type: 'conversation_data',
+            conversation: {
+              callId: conv.callId,
+              callerName: conv.callerName,
+              messages: conv.messages,
+              active: conv.active,
+              createdAt: conv.createdAt,
+              updatedAt: conv.updatedAt
+            }
+          }));
+        }
+      }
+    } catch (e) {
+      console.error('Erro ao processar mensagem WebSocket:', e);
+    }
+  });
+
+  ws.on('close', () => {
+    if (role === 'admin' && userId && adminClients.has(userId)) {
+      adminClients.get(userId).delete(ws);
+      if (adminClients.get(userId).size === 0) {
+        adminClients.delete(userId);
+      }
+    } else if (callId && chatClients.has(callId)) {
+      chatClients.get(callId).delete(ws);
+      if (chatClients.get(callId).size === 0) {
+        chatClients.delete(callId);
+      }
+    }
+  });
+});
+
 app.all('*', (req, res) => nextHandler(req, res));
 
 // Força porta 3000 para evitar conflito com projeto 1 (porta 8080)
@@ -1131,6 +1405,7 @@ async function start() {
   loadCallsFromDisk();
   loadAutomationsFromDisk();
   loadTelegramBots();
+  loadConversationsFromDisk();
   await nextApp.prepare();
   server.listen(PORT, HOST, () => {
     console.log(`🚀 Rodando na porta ${PORT} (host: ${HOST})`);
