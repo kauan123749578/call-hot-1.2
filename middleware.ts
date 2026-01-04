@@ -7,6 +7,9 @@ export function middleware(req: NextRequest) {
   // Públicas
   if (
     pathname.startsWith("/ring/") ||
+    pathname.startsWith("/video/") ||
+    pathname.startsWith("/chat/") ||
+    pathname.startsWith("/connecting/") ||
     pathname.startsWith("/login") ||
     pathname.startsWith("/register") ||
     pathname.startsWith("/api/") ||

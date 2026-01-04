@@ -3,7 +3,6 @@
 import * as React from "react";
 import { Phone, PhoneOff } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch } from "@/lib/api";
 
 type CallInfo = {
   callId: string;
@@ -28,7 +27,9 @@ export default function RingPage({ params }: { params: { callId: string } }) {
   React.useEffect(() => {
     (async () => {
       try {
-        const resp = await apiFetch(`/api/call/${encodeURIComponent(callId)}`);
+        const resp = await fetch(`/api/call/${encodeURIComponent(callId)}`, {
+          credentials: 'include'
+        });
         const data = await resp.json();
         if (!resp.ok) {
           setError(data?.error || "Falha ao carregar call");
@@ -115,9 +116,10 @@ export default function RingPage({ params }: { params: { callId: string } }) {
             type="button"
             onClick={async () => {
               try {
-                await apiFetch("/api/track", {
+                await fetch("/api/track", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
+                  credentials: 'include',
                   body: JSON.stringify({ callId, type: "call_answer" })
                 });
               } catch {}
