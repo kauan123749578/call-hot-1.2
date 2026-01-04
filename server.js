@@ -1003,18 +1003,33 @@ app.post('/api/conversation/:callId/message', requireAuth, (req, res) => {
   if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
   if (conv.ownerUserId !== req.userId) return res.status(403).json({ error: 'Sem permissão' });
   
-  const message = addMessageToConversation(req.params.callId, text, false, req.userId);
+  const message = addMessageToConversation(req.params.callId, text, false, req.userId); // false = admin
   
-  // Enviar via WebSocket para clientes conectados
-  if (chatClients.has(req.params.callId)) {
-    chatClients.get(req.params.callId).forEach(clientWs => {
-      if (clientWs.readyState === WebSocket.OPEN) {
-        clientWs.send(JSON.stringify({
-          type: 'new_message',
-          message
-        }));
-      }
-    });
+  if (message) {
+    // Enviar via WebSocket para clientes conectados
+    if (chatClients.has(req.params.callId)) {
+      chatClients.get(req.params.callId).forEach(clientWs => {
+        if (clientWs.readyState === WebSocket.OPEN) {
+          clientWs.send(JSON.stringify({
+            type: 'new_message',
+            message
+          }));
+        }
+      });
+    }
+    
+    // Enviar também para admins conectados (para atualizar em tempo real)
+    if (adminClients.has(req.userId)) {
+      adminClients.get(req.userId).forEach(adminWs => {
+        if (adminWs.readyState === WebSocket.OPEN) {
+          adminWs.send(JSON.stringify({
+            type: 'new_message',
+            callId: req.params.callId,
+            message
+          }));
+        }
+      });
+    }
   }
   
   res.json({ message });
@@ -1374,7 +1389,7 @@ wss.on('connection', (ws, req) => {
             conversations: activeConvs
           }));
         } else if (callId) {
-          // Cliente conectando durante chamada
+          // Cliente conectando durante chamada ou chat-only
           if (!chatClients.has(callId)) {
             chatClients.set(callId, new Set());
           }
@@ -1387,20 +1402,41 @@ wss.on('connection', (ws, req) => {
               type: 'chat_history',
               messages: conv.messages
             }));
+          } else if (calls.has(callId)) {
+            // Se for uma call normal, criar conversa
+            const call = calls.get(callId);
+            if (call) {
+              getOrCreateConversation(callId, call.callerName, call.ownerUserId);
+            }
           }
         }
       } else if (msg.type === 'chat_message' && callId) {
         // Mensagem do cliente
-        const call = calls.get(callId);
-        if (!call) return;
+        let conv = conversations.get(callId);
+        let ownerUserId = null;
         
-        const conv = getOrCreateConversation(callId, call.callerName, call.ownerUserId);
-        const message = addMessageToConversation(callId, msg.text, true, call.ownerUserId);
+        // Verificar se é uma call normal ou chat-only
+        const call = calls.get(callId);
+        if (call) {
+          // É uma call normal
+          ownerUserId = call.ownerUserId;
+          if (!conv) {
+            conv = getOrCreateConversation(callId, call.callerName, call.ownerUserId);
+          }
+        } else if (conv && conv.isChatOnly) {
+          // É um chat-only
+          ownerUserId = conv.ownerUserId;
+        } else {
+          // Não encontrou nem call nem chat-only válido
+          return;
+        }
+        
+        const message = addMessageToConversation(callId, msg.text, true, ownerUserId);
         
         if (message) {
-          // Enviar para todos os admins do dono da call
-          if (call.ownerUserId && adminClients.has(call.ownerUserId)) {
-            adminClients.get(call.ownerUserId).forEach(adminWs => {
+          // Enviar para todos os admins do dono
+          if (ownerUserId && adminClients.has(ownerUserId)) {
+            adminClients.get(ownerUserId).forEach(adminWs => {
               if (adminWs.readyState === WebSocket.OPEN) {
                 adminWs.send(JSON.stringify({
                   type: 'new_message',

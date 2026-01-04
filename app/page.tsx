@@ -156,12 +156,19 @@ export default function DashboardPage() {
         const data = JSON.parse(event.data);
         
         if (data.type === 'new_message' && data.callId) {
+          // Nova mensagem recebida (do cliente)
           if (selectedConv === data.callId) {
             setChatMessages(prev => [...prev, data.message]);
           }
+          // Sempre atualizar lista de conversas para mostrar badge
           loadConversations();
         } else if (data.type === 'conversations_list') {
           setConversations(data.conversations || []);
+        } else if (data.type === 'conversation_data') {
+          // Dados da conversa quando admin entra
+          if (data.conversation && selectedConv === data.conversation.callId) {
+            setChatMessages(data.conversation.messages || []);
+          }
         }
       } catch (e) {
         console.error('Erro ao processar mensagem WebSocket:', e);
@@ -210,21 +217,25 @@ export default function DashboardPage() {
   async function sendChatMessage() {
     if (!selectedConv || !chatInput.trim()) return;
 
+    const textToSend = chatInput.trim();
+    setChatInput(""); // Limpar input imediatamente
+
     try {
       const resp = await apiFetch(`/api/conversation/${selectedConv}/message`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: chatInput.trim() })
+        body: JSON.stringify({ text: textToSend })
       });
       
       const data = await resp.json();
       if (data.message) {
+        // Adicionar mensagem localmente (fromUser: false = admin)
         setChatMessages(prev => [...prev, data.message]);
-        setChatInput("");
         await loadConversations();
       }
     } catch (e) {
       console.error('Erro ao enviar mensagem:', e);
+      setChatInput(textToSend); // Restaurar se falhar
     }
   }
 
@@ -891,7 +902,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Chat Panel - Right Side */}
-        <div className="w-full lg:w-[380px] border-l border-neutral-800 bg-[#0a0a0a] flex flex-col flex-shrink-0 hidden lg:flex">
+        <div className="w-full lg:w-[380px] border-l border-neutral-800 bg-[#0a0a0a] flex flex-col flex-shrink-0">
           <div className="p-4 border-b border-neutral-800 flex items-center justify-between">
             <h2 className="text-sm font-bold text-white flex items-center gap-2">
               <MessageSquare className="w-4 h-4" />
