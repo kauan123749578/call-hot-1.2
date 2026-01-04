@@ -63,8 +63,13 @@ export default function ChatOnlyPage({ params }: { params: { chatId: string } })
           // Carregar histórico
           setMessages(data.messages || []);
         } else if (data.type === 'new_message' && data.message) {
-          // Nova mensagem recebida
-          setMessages(prev => [...prev, data.message]);
+          // Nova mensagem recebida (do admin)
+          setMessages(prev => {
+            // Verificar se mensagem já existe para evitar duplicação
+            const exists = prev.some(m => m.id === data.message.id);
+            if (exists) return prev;
+            return [...prev, data.message];
+          });
         } else if (data.type === 'message_sent') {
           // Confirmação de envio
           console.log('Mensagem enviada:', data.messageId);
@@ -184,13 +189,13 @@ export default function ChatOnlyPage({ params }: { params: { chatId: string } })
             messages.map((msg) => (
               <div
                 key={msg.id}
-                className={`flex ${msg.fromUser ? 'justify-start' : 'justify-end'}`}
+                className={`flex ${msg.fromUser ? 'justify-end' : 'justify-start'}`}
               >
                 <div
                   className={`max-w-[80%] rounded-lg px-4 py-2 ${
                     msg.fromUser
-                      ? 'bg-neutral-800 border border-neutral-700 text-white'
-                      : 'bg-purple-600/30 border border-purple-500/50 text-white'
+                      ? 'bg-purple-600/30 border border-purple-500/50 text-white'
+                      : 'bg-neutral-800 border border-neutral-700 text-white'
                   }`}
                 >
                   <p className="text-sm">{msg.text}</p>

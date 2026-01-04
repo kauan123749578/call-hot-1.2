@@ -156,9 +156,14 @@ export default function DashboardPage() {
         const data = JSON.parse(event.data);
         
         if (data.type === 'new_message' && data.callId) {
-          // Nova mensagem recebida (do cliente)
-          if (selectedConv === data.callId) {
-            setChatMessages(prev => [...prev, data.message]);
+          // Nova mensagem recebida (do cliente ou admin)
+          if (selectedConv === data.callId && data.message) {
+            setChatMessages(prev => {
+              // Verificar se mensagem já existe para evitar duplicação
+              const exists = prev.some(m => m.id === data.message.id);
+              if (exists) return prev;
+              return [...prev, data.message];
+            });
           }
           // Sempre atualizar lista de conversas para mostrar badge
           loadConversations();
@@ -229,8 +234,7 @@ export default function DashboardPage() {
       
       const data = await resp.json();
       if (data.message) {
-        // Adicionar mensagem localmente (fromUser: false = admin)
-        setChatMessages(prev => [...prev, data.message]);
+        // NÃO adicionar aqui - vai chegar via WebSocket para evitar duplicação
         await loadConversations();
       }
     } catch (e) {
