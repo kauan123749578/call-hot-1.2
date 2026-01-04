@@ -107,7 +107,9 @@ function loadConversationsFromDisk() {
         active: conv.active !== false,
         createdAt: conv.createdAt || new Date().toISOString(),
         updatedAt: conv.updatedAt || new Date().toISOString(),
-        ownerUserId: conv.ownerUserId || null
+        ownerUserId: conv.ownerUserId || null,
+        isChatOnly: conv.isChatOnly || false,
+        linkedCallId: conv.linkedCallId || null
       });
     });
   } catch (e) {
@@ -127,7 +129,9 @@ function persistConversations() {
         active: conv.active !== false,
         createdAt: conv.createdAt || new Date().toISOString(),
         updatedAt: conv.updatedAt || new Date().toISOString(),
-        ownerUserId: conv.ownerUserId || null
+        ownerUserId: conv.ownerUserId || null,
+        isChatOnly: conv.isChatOnly || false,
+        linkedCallId: conv.linkedCallId || null
       });
     }
     out.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
@@ -146,7 +150,9 @@ function getOrCreateConversation(callId, callerName, ownerUserId) {
       active: true,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      ownerUserId: ownerUserId || null
+      ownerUserId: ownerUserId || null,
+      isChatOnly: false,
+      linkedCallId: null
     });
     persistConversations();
   }
@@ -904,10 +910,39 @@ app.get('/api/conversations', requireAuth, (req, res) => {
       lastMessage: c.messages[c.messages.length - 1] || null,
       active: c.active,
       createdAt: c.createdAt,
-      updatedAt: c.updatedAt
+      updatedAt: c.updatedAt,
+      isChatOnly: c.isChatOnly || false,
+      linkedCallId: c.linkedCallId || null
     }))
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   res.json({ conversations: list });
+});
+
+// Criar chat apenas (sem chamada)
+app.post('/api/conversations/chat-only', requireAuth, (req, res) => {
+  const { callerName } = req.body;
+  const chatId = uuidv4();
+  
+  const conv = {
+    callId: chatId,
+    callerName: callerName || null,
+    messages: [],
+    active: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ownerUserId: req.userId,
+    isChatOnly: true,
+    linkedCallId: null
+  };
+  
+  conversations.set(chatId, conv);
+  persistConversations();
+  
+  res.json({ 
+    chatId, 
+    chatUrl: `/chat/${chatId}`,
+    conversation: conv
+  });
 });
 
 app.get('/api/conversation/:callId', requireAuth, (req, res) => {
@@ -915,6 +950,51 @@ app.get('/api/conversation/:callId', requireAuth, (req, res) => {
   if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
   if (conv.ownerUserId !== req.userId) return res.status(403).json({ error: 'Sem permissão' });
   res.json({ conversation: conv });
+});
+
+// Obter dados do chat-only (público)
+app.get('/api/chat/:chatId', (req, res) => {
+  const conv = conversations.get(req.params.chatId);
+  if (!conv) return res.status(404).json({ error: 'Chat não encontrado' });
+  if (!conv.isChatOnly) return res.status(400).json({ error: 'Não é um chat-only' });
+  
+  res.json({
+    chatId: conv.callId,
+    callerName: conv.callerName,
+    linkedCallId: conv.linkedCallId,
+    active: conv.active
+  });
+});
+
+// Obter mensagens do chat-only (público)
+app.get('/api/chat/:chatId/messages', (req, res) => {
+  const conv = conversations.get(req.params.chatId);
+  if (!conv) return res.status(404).json({ error: 'Chat não encontrado' });
+  if (!conv.isChatOnly) return res.status(400).json({ error: 'Não é um chat-only' });
+  
+  res.json({
+    messages: conv.messages || []
+  });
+});
+
+// Vincular call a um chat-only
+app.post('/api/conversation/:chatId/link-call', requireAuth, (req, res) => {
+  const { callId } = req.body;
+  const conv = conversations.get(req.params.chatId);
+  if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+  if (conv.ownerUserId !== req.userId) return res.status(403).json({ error: 'Sem permissão' });
+  if (!conv.isChatOnly) return res.status(400).json({ error: 'Não é um chat-only' });
+  
+  const call = calls.get(callId);
+  if (!call) return res.status(404).json({ error: 'Call não encontrada' });
+  if (call.ownerUserId !== req.userId) return res.status(403).json({ error: 'Sem permissão' });
+  
+  conv.linkedCallId = callId;
+  conv.updatedAt = new Date().toISOString();
+  conversations.set(req.params.chatId, conv);
+  persistConversations();
+  
+  res.json({ ok: true });
 });
 
 app.post('/api/conversation/:callId/message', requireAuth, (req, res) => {

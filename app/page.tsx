@@ -180,35 +180,20 @@ export default function DashboardPage() {
   }
 
   async function createCall() {
+    const startTime = Date.now();
     setLoading(true);
     setProgress({ percent: 0, message: "Iniciando...", seconds: 0 });
     
     let progressInterval: ReturnType<typeof setInterval> | null = null;
-    let secondsElapsed = 0;
     
-    // Simula progresso com timer
+    // Timer para atualizar segundos em tempo real
     progressInterval = setInterval(() => {
-      secondsElapsed++;
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
       setProgress(prev => {
         if (!prev) return null;
-        // Simula progresso: 0-30% upload, 30-70% processamento, 70-100% finalização
-        let percent = 0;
-        let message = "";
-        
-        if (secondsElapsed <= 2) {
-          percent = Math.min(30, (secondsElapsed / 2) * 30);
-          message = "Enviando arquivos...";
-        } else if (secondsElapsed <= 4) {
-          percent = 30 + Math.min(40, ((secondsElapsed - 2) / 2) * 40);
-          message = "Processando vídeo...";
-        } else {
-          percent = 70 + Math.min(30, ((secondsElapsed - 4) / 2) * 30);
-          message = "Finalizando chamada...";
-        }
-        
-        return { percent: Math.min(100, percent), message, seconds: secondsElapsed };
+        return { ...prev, seconds: elapsed };
       });
-    }, 500);
+    }, 100);
     
     try {
       setProgress({ percent: 10, message: "Preparando upload...", seconds: 0 });
@@ -217,20 +202,24 @@ export default function DashboardPage() {
       let aUrl = avatarUrl;
       
       if (videoFile && !vUrl) {
-        setProgress({ percent: 20, message: "Enviando vídeo...", seconds: secondsElapsed });
+        setProgress({ percent: 20, message: "Enviando vídeo...", seconds: Math.floor((Date.now() - startTime) / 1000) });
         vUrl = await uploadVideo(videoFile);
-        setProgress({ percent: 50, message: "Vídeo enviado!", seconds: secondsElapsed });
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        setProgress({ percent: 60, message: "Vídeo enviado!", seconds: elapsed });
       }
       
       if (!vUrl) throw new Error("Selecione um vídeo");
       
       if (avatarFile && !aUrl) {
-        setProgress({ percent: 60, message: "Enviando avatar...", seconds: secondsElapsed });
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        setProgress({ percent: 70, message: "Enviando avatar...", seconds: elapsed });
         aUrl = await uploadAvatar(avatarFile);
-        setProgress({ percent: 70, message: "Avatar enviado!", seconds: secondsElapsed });
+        const elapsed2 = Math.floor((Date.now() - startTime) / 1000);
+        setProgress({ percent: 85, message: "Avatar enviado!", seconds: elapsed2 });
       }
 
-      setProgress({ percent: 80, message: "Criando chamada...", seconds: secondsElapsed });
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      setProgress({ percent: 90, message: "Criando chamada...", seconds: elapsed });
       
       const resp = await apiFetch("/api/create-call", {
         method: "POST",
@@ -244,12 +233,14 @@ export default function DashboardPage() {
         })
       });
       
-      setProgress({ percent: 95, message: "Quase pronto...", seconds: secondsElapsed });
+      const elapsed2 = Math.floor((Date.now() - startTime) / 1000);
+      setProgress({ percent: 95, message: "Finalizando...", seconds: elapsed2 });
       
       const data = await resp.json();
       if (!resp.ok) throw new Error(data?.error || "Erro ao criar call");
       
-      setProgress({ percent: 100, message: "Chamada criada!", seconds: secondsElapsed });
+      const finalElapsed = Math.floor((Date.now() - startTime) / 1000);
+      setProgress({ percent: 100, message: "Chamada criada!", seconds: finalElapsed });
 
       const link = `${window.location.origin}${data.ringUrl}`;
       // REMOVIDO: navigator.clipboard.writeText(link); 
@@ -366,37 +357,61 @@ export default function DashboardPage() {
     ) : (
     <div className="min-h-screen flex flex-col bg-black text-gray-200" style={{ fontFamily: "'Inter', sans-serif" }}>
       {/* Header */}
-      <header className="h-16 border-b border-neutral-800 bg-black flex items-center justify-between px-4 lg:px-6 z-20 shadow-md sticky top-0 flex-shrink-0">
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="lg:hidden p-2 text-white hover:bg-neutral-800 rounded"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+      <header className="border-b border-neutral-800 bg-black flex flex-col z-20 shadow-md sticky top-0 flex-shrink-0">
+        <div className="h-16 flex items-center justify-between px-4 lg:px-6">
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="lg:hidden p-2 text-white hover:bg-neutral-800 rounded"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+            <svg width="32" height="32" className="lg:w-10 lg:h-10 flex-shrink-0" viewBox="0 0 80 80">
+              <circle cx="40" cy="40" r="38" fill="#1a1a1a" stroke="#d61f1f" strokeWidth="2" />
+              <polygon points="30,25 30,55 55,40" fill="#d61f1f" />
+              <circle cx="60" cy="20" r="8" fill="#d61f1f" />
+              <rect x="56" y="24" width="8" height="4" fill="#d61f1f" rx="1" />
+              <rect x="58" y="28" width="4" height="2" fill="#d61f1f" rx="1" />
             </svg>
-          </button>
-          <svg width="32" height="32" className="lg:w-10 lg:h-10 flex-shrink-0" viewBox="0 0 80 80">
-            <circle cx="40" cy="40" r="38" fill="#1a1a1a" stroke="#d61f1f" strokeWidth="2" />
-            <polygon points="30,25 30,55 55,40" fill="#d61f1f" />
-            <circle cx="60" cy="20" r="8" fill="#d61f1f" />
-            <rect x="56" y="24" width="8" height="4" fill="#d61f1f" rx="1" />
-            <rect x="58" y="28" width="4" height="2" fill="#d61f1f" rx="1" />
-          </svg>
-          <div>
-            <h1 className="text-xl lg:text-2xl font-black tracking-tighter">
-              <span className="text-white">CALL</span><span className="text-[#d61f1f]">HOT</span>
-            </h1>
+            <div>
+              <h1 className="text-xl lg:text-2xl font-black tracking-tighter">
+                <span className="text-white">CALL</span><span className="text-[#d61f1f]">HOT</span>
+              </h1>
+            </div>
+          </div>
+          <div className="flex items-center space-x-2 lg:space-x-3">
+            <Button variant="secondary" onClick={refresh} className="text-xs h-8 px-2 lg:px-3">
+              Atualizar
+            </Button>
+            <Button variant="secondary" onClick={logout} className="text-xs h-8 px-2 lg:px-3">
+              Sair
+            </Button>
           </div>
         </div>
-        <div className="flex items-center space-x-2 lg:space-x-3">
-          <Button variant="secondary" onClick={refresh} className="text-xs h-8 px-2 lg:px-3">
-            Atualizar
-          </Button>
-          <Button variant="secondary" onClick={logout} className="text-xs h-8 px-2 lg:px-3">
-            Sair
-          </Button>
-        </div>
+        
+        {/* Barra de Progresso - aparece no topo do dashboard */}
+        {progress && (
+          <div className="px-4 lg:px-6 py-3 bg-neutral-900/80 border-b border-neutral-800">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-white font-medium">{progress.message}</span>
+                <span className="text-emerald-400 font-bold">{Math.round(progress.percent)}%</span>
+              </div>
+              <div className="w-full bg-neutral-800 rounded-full h-2 overflow-hidden">
+                <div 
+                  className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-300 ease-out rounded-full"
+                  style={{ width: `${progress.percent}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-gray-400">
+                <span>Tempo decorrido: {progress.seconds}s</span>
+                <span>Gerando chamada...</span>
+              </div>
+            </div>
+          </div>
+        )}
       </header>
 
       {/* Main Content */}
@@ -556,25 +571,6 @@ export default function DashboardPage() {
                 {loading ? "Criando..." : "Criar Chamada"}
               </button>
               
-              {/* Indicador de Progresso */}
-              {progress && (
-                <div className="mt-4 space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-gray-400 font-medium">{progress.message}</span>
-                    <span className="text-emerald-400 font-bold">{Math.round(progress.percent)}%</span>
-                  </div>
-                  <div className="w-full bg-neutral-800 rounded-full h-2 overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500 ease-out rounded-full"
-                      style={{ width: `${progress.percent}%` }}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between text-[10px] text-gray-500">
-                    <span>Tempo decorrido: {progress.seconds}s</span>
-                    <span>Tempo estimado: {Math.max(1, Math.ceil((100 - progress.percent) / 10))}s</span>
-                  </div>
-                </div>
-              )}
             </div>
           </form>
         </div>

@@ -35,6 +35,8 @@ export default function ConversationsPage() {
   const [messageInput, setMessageInput] = React.useState("");
   const [ws, setWs] = React.useState<WebSocket | null>(null);
   const [userId, setUserId] = React.useState<string | null>(null);
+  const [showNewChatModal, setShowNewChatModal] = React.useState(false);
+  const [newChatName, setNewChatName] = React.useState("");
 
   React.useEffect(() => {
     (async () => {
@@ -146,6 +148,42 @@ export default function ConversationsPage() {
     }
   }
 
+  async function createNewChat() {
+    if (!newChatName.trim()) {
+      alert('Digite um nome para o chat');
+      return;
+    }
+
+    try {
+      const resp = await apiFetch('/api/conversations/chat-only', {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ callerName: newChatName.trim() })
+      });
+      
+      const data = await resp.json();
+      if (data.chatId) {
+        setShowNewChatModal(false);
+        setNewChatName("");
+        await loadConversations();
+        selectConversation(data.chatId);
+        showToast(`Chat criado! Link: ${data.chatUrl}`);
+      }
+    } catch (e: any) {
+      console.error('Erro ao criar chat:', e);
+      alert('Erro ao criar chat: ' + (e?.message || 'Erro desconhecido'));
+    }
+  }
+
+  function showToast(message: string) {
+    // Toast simples
+    const toast = document.createElement('div');
+    toast.className = 'fixed top-4 right-4 bg-red-600 text-white px-4 py-2 rounded shadow-lg z-50';
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+  }
+
   function formatDate(dateStr: string) {
     const date = new Date(dateStr);
     return date.toLocaleDateString('pt-BR', {
@@ -172,7 +210,7 @@ export default function ConversationsPage() {
             <h2 className="text-lg font-bold text-white">Conversas</h2>
             <button
               className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded transition-colors"
-              onClick={loadConversations}
+              onClick={() => setShowNewChatModal(true)}
             >
               + Nova
             </button>
@@ -249,13 +287,13 @@ export default function ConversationsPage() {
                   messages.map((msg) => (
                     <div
                       key={msg.id}
-                      className={`flex ${msg.fromUser ? 'justify-end' : 'justify-start'}`}
+                      className={`flex ${msg.fromUser ? 'justify-start' : 'justify-end'}`}
                     >
                       <div
                         className={`max-w-[80%] rounded-lg px-4 py-2 ${
                           msg.fromUser
-                            ? 'bg-purple-600/30 border border-purple-500/50 text-white'
-                            : 'bg-neutral-800 border border-neutral-700 text-white'
+                            ? 'bg-neutral-800 border border-neutral-700 text-white'
+                            : 'bg-purple-600/30 border border-purple-500/50 text-white'
                         }`}
                       >
                         <p className="text-sm">{msg.text}</p>
@@ -304,6 +342,44 @@ export default function ConversationsPage() {
           )}
         </div>
       </div>
+
+      {/* Modal Criar Novo Chat */}
+      {showNewChatModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50" onClick={() => setShowNewChatModal(false)}>
+          <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-xl font-bold text-white mb-4">Nova Conversa</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">Nome do Cliente</label>
+                <input
+                  type="text"
+                  value={newChatName}
+                  onChange={(e) => setNewChatName(e.target.value)}
+                  placeholder="Ex: João, Maria..."
+                  className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-4 py-2 text-white placeholder:text-gray-500 focus:outline-none focus:border-red-500"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') createNewChat();
+                  }}
+                />
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowNewChatModal(false)}
+                  className="flex-1 px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={createNewChat}
+                  className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+                >
+                  Criar Chat
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }
