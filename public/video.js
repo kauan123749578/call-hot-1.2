@@ -163,13 +163,17 @@
           const data = JSON.parse(event.data);
           
           if (data.type === 'chat_history' && Array.isArray(data.messages)) {
-            // Carregar histórico
+            // Carregar histórico - limpar mensagens primeiro
+            chatMessages.innerHTML = '';
+            messages = [];
             data.messages.forEach(msg => {
-              addMessage(msg.text, msg.fromUser, false);
+              // fromUser: true = cliente (roxo direita), fromUser: false = admin (cinza esquerda)
+              addMessage(msg.text, msg.fromUser, false, msg.id);
             });
           } else if (data.type === 'new_message' && data.message) {
-            // Nova mensagem recebida
-            addMessage(data.message.text, !data.message.fromUser, false);
+            // Nova mensagem recebida do admin
+            // fromUser: false = admin (cinza esquerda), fromUser: true = cliente (roxo direita)
+            addMessage(data.message.text, data.message.fromUser, false, data.message.id);
           } else if (data.type === 'message_sent') {
             // Confirmação de envio
             console.log('Mensagem enviada:', data.messageId);
@@ -205,18 +209,25 @@
       }
     }
 
-    function addMessage(text, isUser = true, sendToServer = true) {
+    function addMessage(text, isUser = true, sendToServer = true, messageId = null) {
       // Remove empty message placeholder
       const emptyMsg = chatMessages.querySelector('.chat-empty');
       if (emptyMsg) emptyMsg.remove();
 
+      // Verificar se mensagem já existe (usando ID ou texto+timestamp)
+      if (messageId) {
+        const exists = messages.some(m => m.id === messageId);
+        if (exists) return;
+      }
+
       const messageDiv = document.createElement('div');
+      if (messageId) messageDiv.setAttribute('data-msg-id', messageId);
       messageDiv.className = `chat-message ${isUser ? 'user' : 'other'}`;
       messageDiv.textContent = text;
       chatMessages.appendChild(messageDiv);
       chatMessages.scrollTop = chatMessages.scrollHeight;
       
-      messages.push({ text, isUser, timestamp: Date.now() });
+      messages.push({ id: messageId || `temp-${Date.now()}`, text, isUser, timestamp: Date.now() });
       
       // Enviar para servidor se for mensagem do usuário
       if (sendToServer && isUser && chatWs && chatWs.readyState === WebSocket.OPEN) {
