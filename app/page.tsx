@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/lib/api";
+import { MessageSquare, Send, Phone, X } from "lucide-react";
 
 type CallItem = {
   callId: string;
@@ -25,6 +26,29 @@ type Sale = {
   amount: number;
   note: string | null;
   at: string;
+};
+
+type Conversation = {
+  callId: string;
+  callerName: string | null;
+  messageCount: number;
+  lastMessage: {
+    id: string;
+    text: string;
+    fromUser: boolean;
+    timestamp: string;
+  } | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+  isChatOnly?: boolean;
+};
+
+type ChatMessage = {
+  id: string;
+  text: string;
+  fromUser: boolean;
+  timestamp: string;
 };
 
 function fmtDateLabel(iso: string) {
@@ -66,6 +90,17 @@ export default function DashboardPage() {
   const [createdLink, setCreatedLink] = React.useState<string | null>(null);
   const [createdCallAmount, setCreatedCallAmount] = React.useState<number | null>(null);
   const [progress, setProgress] = React.useState<{ percent: number; message: string; seconds: number } | null>(null);
+  
+  // Estados do Chat
+  const [conversations, setConversations] = React.useState<Conversation[]>([]);
+  const [selectedConv, setSelectedConv] = React.useState<string | null>(null);
+  const [chatMessages, setChatMessages] = React.useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = React.useState("");
+  const [chatWs, setChatWs] = React.useState<WebSocket | null>(null);
+  const [userId, setUserId] = React.useState<string | null>(null);
+  const [showNewChatModal, setShowNewChatModal] = React.useState(false);
+  const [newChatName, setNewChatName] = React.useState("");
+  const [createdChatLink, setCreatedChatLink] = React.useState<string | null>(null);
 
   function showToast(message: string) {
     setToast(message);
@@ -92,10 +127,145 @@ export default function DashboardPage() {
         window.location.href = "/login";
         return;
       }
+      const userData = await me.json();
+      setUserId(userData.userId);
       setAuthed(true);
       refresh();
+      await loadConversations();
     })();
   }, []);
+
+  // Conectar WebSocket para Chat
+  React.useEffect(() => {
+    if (!userId) return;
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    const websocket = new WebSocket(wsUrl);
+
+    websocket.onopen = () => {
+      websocket.send(JSON.stringify({
+        type: 'join',
+        userId: userId,
+        role: 'admin'
+      }));
+    };
+
+    websocket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'new_message' && data.callId) {
+          if (selectedConv === data.callId) {
+            setChatMessages(prev => [...prev, data.message]);
+          }
+          loadConversations();
+        } else if (data.type === 'conversations_list') {
+          setConversations(data.conversations || []);
+        }
+      } catch (e) {
+        console.error('Erro ao processar mensagem WebSocket:', e);
+      }
+    };
+
+    websocket.onerror = () => {
+      console.error('Erro na conexão WebSocket');
+    };
+
+    setChatWs(websocket);
+
+    return () => {
+      websocket.close();
+    };
+  }, [userId, selectedConv]);
+
+  async function loadConversations() {
+    try {
+      const resp = await apiFetch("/api/conversations");
+      const data = await resp.json();
+      setConversations(data.conversations || []);
+    } catch (e) {
+      console.error('Erro ao carregar conversas:', e);
+    }
+  }
+
+  async function selectConversation(callId: string) {
+    setSelectedConv(callId);
+    try {
+      const resp = await apiFetch(`/api/conversation/${callId}`);
+      const data = await resp.json();
+      setChatMessages(data.conversation?.messages || []);
+      
+      if (chatWs && chatWs.readyState === WebSocket.OPEN) {
+        chatWs.send(JSON.stringify({
+          type: 'join_conversation',
+          callId: callId
+        }));
+      }
+    } catch (e) {
+      console.error('Erro ao carregar conversa:', e);
+    }
+  }
+
+  async function sendChatMessage() {
+    if (!selectedConv || !chatInput.trim()) return;
+
+    try {
+      const resp = await apiFetch(`/api/conversation/${selectedConv}/message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: chatInput.trim() })
+      });
+      
+      const data = await resp.json();
+      if (data.message) {
+        setChatMessages(prev => [...prev, data.message]);
+        setChatInput("");
+        await loadConversations();
+      }
+    } catch (e) {
+      console.error('Erro ao enviar mensagem:', e);
+    }
+  }
+
+  async function createNewChat() {
+    if (!newChatName.trim()) {
+      showToast('Digite um nome para o chat');
+      return;
+    }
+
+    try {
+      const resp = await apiFetch('/api/conversations/chat-only', {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ callerName: newChatName.trim() })
+      });
+      
+      const data = await resp.json();
+      if (data.chatId) {
+        const chatLink = `${window.location.origin}${data.chatUrl}`;
+        setCreatedChatLink(chatLink);
+        setShowNewChatModal(false);
+        setNewChatName("");
+        await loadConversations();
+        selectConversation(data.chatId);
+      }
+    } catch (e: any) {
+      console.error('Erro ao criar chat:', e);
+      showToast('Erro ao criar chat: ' + (e?.message || 'Erro desconhecido'));
+    }
+  }
+
+  function formatChatDate(dateStr: string) {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  }
 
   // Gráfico com valores de vendas
   const chartData = React.useMemo(() => {
@@ -719,6 +889,114 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+
+        {/* Chat Panel - Right Side */}
+        <div className="w-full lg:w-[380px] border-l border-neutral-800 bg-[#0a0a0a] flex flex-col flex-shrink-0 hidden lg:flex">
+          <div className="p-4 border-b border-neutral-800 flex items-center justify-between">
+            <h2 className="text-sm font-bold text-white flex items-center gap-2">
+              <MessageSquare className="w-4 h-4" />
+              Conversas
+            </h2>
+            <button
+              onClick={() => setShowNewChatModal(true)}
+              className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded transition-colors"
+            >
+              + Nova
+            </button>
+          </div>
+          
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {selectedConv ? (
+              <>
+                <div className="p-3 border-b border-neutral-800">
+                  <h3 className="text-xs font-semibold text-white">
+                    {conversations.find(c => c.callId === selectedConv)?.callerName || 'Conversa'}
+                  </h3>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                  {chatMessages.length === 0 ? (
+                    <div className="text-center text-white/50 py-8 text-xs">
+                      Nenhuma mensagem ainda
+                    </div>
+                  ) : (
+                    chatMessages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`flex ${msg.fromUser ? 'justify-start' : 'justify-end'}`}
+                      >
+                        <div
+                          className={`max-w-[85%] rounded-lg px-3 py-2 text-xs ${
+                            msg.fromUser
+                              ? 'bg-neutral-800 border border-neutral-700 text-white'
+                              : 'bg-purple-600/30 border border-purple-500/50 text-white'
+                          }`}
+                        >
+                          <p>{msg.text}</p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="p-3 border-t border-neutral-800">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter') {
+                          sendChatMessage();
+                        }
+                      }}
+                      placeholder="Digite uma mensagem..."
+                      className="flex-1 bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-xs text-white placeholder:text-white/50 focus:outline-none focus:border-red-500"
+                    />
+                    <button
+                      onClick={sendChatMessage}
+                      className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="flex-1 overflow-y-auto p-4">
+                {conversations.length === 0 ? (
+                  <div className="text-center text-white/50 py-8 text-xs">
+                    Nenhuma conversa ativa
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {conversations.map((conv) => (
+                      <div
+                        key={conv.callId}
+                        onClick={() => selectConversation(conv.callId)}
+                        className={`p-3 rounded-lg cursor-pointer transition-colors border ${
+                          selectedConv === conv.callId
+                            ? 'bg-neutral-800 border-red-500/50'
+                            : 'bg-neutral-900/50 border-neutral-800 hover:bg-neutral-800'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-semibold text-white">
+                            {conv.callerName || `Conversa ${conv.callId.substring(0, 4)}`}
+                          </span>
+                          <span className="text-[10px] text-white/40">
+                            {new Date(conv.updatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-white/60 truncate">
+                          {conv.lastMessage ? (conv.lastMessage.fromUser ? 'Cliente: ' : 'Você: ') + conv.lastMessage.text : 'Nenhuma mensagem'}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       </main>
 
       {/* Modal de link criado */}
@@ -758,6 +1036,80 @@ export default function DashboardPage() {
                 setCreatedLink(null);
                 setCreatedCallAmount(null);
               }}
+              className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 text-white text-xs lg:text-sm"
+            >
+              Fechar
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Criar Novo Chat */}
+      {showNewChatModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowNewChatModal(false)}>
+          <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-xl font-bold text-white mb-4">Nova Conversa</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">Nome do Cliente</label>
+                <input
+                  type="text"
+                  value={newChatName}
+                  onChange={(e) => setNewChatName(e.target.value)}
+                  placeholder="Ex: João, Maria..."
+                  className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-4 py-2 text-white placeholder:text-gray-500 focus:outline-none focus:border-red-500"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') createNewChat();
+                  }}
+                />
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowNewChatModal(false)}
+                  className="flex-1 px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={createNewChat}
+                  className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+                >
+                  Criar Chat
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Link do Chat Criado */}
+      {createdChatLink && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={() => setCreatedChatLink(null)}>
+          <div className="bg-[#1a1a1a] border border-[#d61f1f]/30 rounded-lg p-4 lg:p-6 max-w-md w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base lg:text-lg font-bold text-white mb-3 lg:mb-4">Chat criado com sucesso!</h3>
+            <div className="mb-4">
+              <label className="block text-xs text-gray-400 mb-2">Link do chat:</label>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={createdChatLink}
+                  className="flex-1 px-3 py-2 bg-black border border-neutral-800 rounded text-xs lg:text-sm text-white font-mono"
+                  onClick={(e) => e.currentTarget.select()}
+                />
+                <Button
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(createdChatLink);
+                    showToast("Link copiado!");
+                  }}
+                  className="px-4 py-2 bg-[#d61f1f] hover:bg-[#b91c1c] text-white text-xs lg:text-sm whitespace-nowrap"
+                >
+                  Copiar
+                </Button>
+              </div>
+            </div>
+            <Button
+              onClick={() => setCreatedChatLink(null)}
               className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 text-white text-xs lg:text-sm"
             >
               Fechar
