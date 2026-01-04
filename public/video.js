@@ -139,7 +139,60 @@
       }
     });
 
-    // Chat functionality
+    // Chat functionality com WebSocket
+    let chatWs = null;
+    let videoEnded = false;
+    let hasWatchedVideo = false;
+    
+    function connectChatWebSocket() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws`;
+      
+      chatWs = new WebSocket(wsUrl);
+      
+      chatWs.onopen = () => {
+        chatWs.send(JSON.stringify({
+          type: 'join',
+          callId: callId,
+          role: 'guest'
+        }));
+      };
+      
+      chatWs.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          if (data.type === 'chat_history' && Array.isArray(data.messages)) {
+            // Carregar histórico
+            data.messages.forEach(msg => {
+              addMessage(msg.text, msg.fromUser, false);
+            });
+          } else if (data.type === 'new_message' && data.message) {
+            // Nova mensagem recebida
+            addMessage(data.message.text, !data.message.fromUser, false);
+          } else if (data.type === 'message_sent') {
+            // Confirmação de envio
+            console.log('Mensagem enviada:', data.messageId);
+          }
+        } catch (e) {
+          console.error('Erro ao processar mensagem WebSocket:', e);
+        }
+      };
+      
+      chatWs.onerror = () => {
+        console.error('Erro na conexão WebSocket do chat');
+      };
+      
+      chatWs.onclose = () => {
+        // Reconectar após 3 segundos se não foi intencional
+        if (!videoEnded) {
+          setTimeout(() => {
+            if (!videoEnded) connectChatWebSocket();
+          }, 3000);
+        }
+      };
+    }
+    
     function toggleChat() {
       chatOpen = !chatOpen;
       if (chatOpen) {
@@ -152,7 +205,7 @@
       }
     }
 
-    function addMessage(text, isUser = true) {
+    function addMessage(text, isUser = true, sendToServer = true) {
       // Remove empty message placeholder
       const emptyMsg = chatMessages.querySelector('.chat-empty');
       if (emptyMsg) emptyMsg.remove();
@@ -164,27 +217,23 @@
       chatMessages.scrollTop = chatMessages.scrollHeight;
       
       messages.push({ text, isUser, timestamp: Date.now() });
+      
+      // Enviar para servidor se for mensagem do usuário
+      if (sendToServer && isUser && chatWs && chatWs.readyState === WebSocket.OPEN) {
+        chatWs.send(JSON.stringify({
+          type: 'chat_message',
+          callId: callId,
+          text: text
+        }));
+      }
     }
 
     function sendMessage() {
       const text = chatInput.value.trim();
       if (!text) return;
 
-      addMessage(text, true);
+      addMessage(text, true, true);
       chatInput.value = '';
-
-      // Simula resposta automática após 1-2 segundos
-      setTimeout(() => {
-        const responses = [
-          'Obrigado pela mensagem!',
-          'Entendi!',
-          'Ok, anotado!',
-          'Perfeito!',
-          'Vou verificar isso para você.'
-        ];
-        const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-        addMessage(randomResponse, false);
-      }, 1000 + Math.random() * 1000);
     }
 
     chatBtn.addEventListener('click', toggleChat);
@@ -196,6 +245,9 @@
         sendMessage();
       }
     });
+    
+    // Conectar WebSocket do chat
+    connectChatWebSocket();
 
     endedBtn?.addEventListener('click', () => {
       // Encerrar por completo: tenta fechar a aba. Se o browser bloquear, manda pra Home.
@@ -228,8 +280,67 @@
 
       // Quando o vídeo acabar, encerra a chamada automaticamente
       mainVideo.onended = () => {
+        videoEnded = true;
+        hasWatchedVideo = true;
+        
+        // Fechar WebSocket do chat
+        if (chatWs) {
+          chatWs.close();
+          chatWs = null;
+        }
+        
+        // Marcar que o vídeo foi assistido (prevenir reload)
+        try {
+          sessionStorage.setItem(`video_watched_${callId}`, 'true');
+        } catch {}
+        
         hangupBtn.click();
       };
+      
+      // Verificar se já assistiu o vídeo antes (ANTES de carregar)
+      try {
+        if (sessionStorage.getItem(`video_watched_${callId}`) === 'true') {
+          // Se já assistiu, redirecionar imediatamente
+          window.location.href = '/';
+          return;
+        }
+      } catch {}
+      
+      // Proteção contra reload após assistir o vídeo
+      window.addEventListener('beforeunload', (e) => {
+        if (hasWatchedVideo || videoEnded) {
+          e.preventDefault();
+          e.returnValue = 'A chamada já foi encerrada. Você não pode recarregar a página.';
+          return e.returnValue;
+        }
+      });
+      
+      // Prevenir reload via F5 ou Ctrl+R
+      window.addEventListener('keydown', (e) => {
+        if ((e.key === 'F5') || (e.ctrlKey && e.key === 'r') || (e.ctrlKey && e.key === 'R')) {
+          if (hasWatchedVideo || videoEnded) {
+            e.preventDefault();
+            alert('A chamada já foi encerrada. Você não pode recarregar a página.');
+            return false;
+          }
+        }
+      });
+      
+      // Marcar que iniciou a visualização
+      mainVideo.addEventListener('play', () => {
+        hasWatchedVideo = true;
+        try {
+          sessionStorage.setItem(`video_started_${callId}`, 'true');
+        } catch {}
+      }, { once: true });
+      
+      // Prevenir reload após término
+      mainVideo.addEventListener('ended', () => {
+        // Desabilitar botão de reload do navegador
+        try {
+          sessionStorage.setItem(`video_watched_${callId}`, 'true');
+        } catch {}
+      });
 
       // tenta autoplay (pode falhar por política do navegador)
       const ok = await safePlay(mainVideo, overlay);
