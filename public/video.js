@@ -171,12 +171,35 @@
               addMessage(msg.text, msg.fromUser, false, msg.id);
             });
           } else if (data.type === 'new_message' && data.message) {
-            // Nova mensagem recebida do admin
+            // Nova mensagem recebida do admin ou confirmação da mensagem enviada
             // fromUser: false = admin (cinza esquerda), fromUser: true = cliente (roxo direita)
+            
+            // Verificar se já existe mensagem com este ID (evitar duplicação)
+            const exists = messages.some(m => m.id === data.message.id);
+            if (exists) return;
+            
+            // Se for uma mensagem do cliente (fromUser: true), pode ser confirmação
+            // Remover mensagem temporária se existir (mesmo texto e fromUser)
+            if (data.message.fromUser) {
+              // Remover da lista de mensagens
+              const tempIndex = messages.findIndex(m => 
+                m.id.startsWith('temp-') && 
+                m.text === data.message.text && 
+                m.isUser === data.message.fromUser
+              );
+              if (tempIndex !== -1) {
+                messages.splice(tempIndex, 1);
+                // Remover do DOM - procurar pelo texto e classe
+                const messageDivs = chatMessages.querySelectorAll('.chat-message.user');
+                messageDivs.forEach(div => {
+                  if (div.textContent.trim() === data.message.text.trim()) {
+                    div.remove();
+                  }
+                });
+              }
+            }
+            
             addMessage(data.message.text, data.message.fromUser, false, data.message.id);
-          } else if (data.type === 'message_sent') {
-            // Confirmação de envio
-            console.log('Mensagem enviada:', data.messageId);
           }
         } catch (e) {
           console.error('Erro ao processar mensagem WebSocket:', e);
