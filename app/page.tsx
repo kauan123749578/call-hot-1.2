@@ -103,6 +103,12 @@ export default function DashboardPage() {
   const [createdChatLink, setCreatedChatLink] = React.useState<string | null>(null);
   const [selectedConvCallData, setSelectedConvCallData] = React.useState<CallItem | null>(null);
 
+  // Ref para selectedConv para usar no WebSocket
+  const selectedConvRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    selectedConvRef.current = selectedConv;
+  }, [selectedConv]);
+
   function showToast(message: string) {
     setToast(message);
     window.clearTimeout((showToast as any)._t);
@@ -161,8 +167,8 @@ export default function DashboardPage() {
         if (data.type === 'new_message' && data.callId && data.message) {
           // Nova mensagem recebida (do cliente ou admin)
           setChatMessages(prev => {
-            // Verificar conversa selecionada atual
-            const currentSelected = selectedConv;
+            // Verificar conversa selecionada atual usando ref
+            const currentSelected = selectedConvRef.current;
             if (currentSelected === data.callId) {
               const exists = prev.some(m => m.id === data.message.id);
               if (exists) return prev;
@@ -176,7 +182,7 @@ export default function DashboardPage() {
           setConversations(data.conversations || []);
         } else if (data.type === 'conversation_data') {
           // Dados da conversa quando admin entra
-          const currentSelected = selectedConv;
+          const currentSelected = selectedConvRef.current;
           if (data.conversation && currentSelected === data.conversation.callId) {
             setChatMessages(data.conversation.messages || []);
           }
@@ -300,6 +306,16 @@ export default function DashboardPage() {
     const textToSend = chatInput.trim();
     setChatInput(""); // Limpar input imediatamente
 
+    // Optimistic update: adicionar mensagem imediatamente
+    const tempId = `temp-${Date.now()}`;
+    const optimisticMessage: ChatMessage = {
+      id: tempId,
+      text: textToSend,
+      fromUser: false, // Admin envia
+      timestamp: new Date().toISOString()
+    };
+    setChatMessages(prev => [...prev, optimisticMessage]);
+
     try {
       const resp = await apiFetch(`/api/conversation/${selectedConv}/message`, {
         method: "POST",
@@ -309,11 +325,19 @@ export default function DashboardPage() {
       
       const data = await resp.json();
       if (data.message) {
-        // NÃO adicionar aqui - vai chegar via WebSocket para evitar duplicação
+        // Substituir mensagem temporária pela real quando chegar
+        setChatMessages(prev => {
+          const filtered = prev.filter(m => m.id !== tempId);
+          const exists = filtered.some(m => m.id === data.message.id);
+          if (exists) return filtered;
+          return [...filtered, data.message];
+        });
         await loadConversations();
       }
     } catch (e) {
       console.error('Erro ao enviar mensagem:', e);
+      // Remover mensagem otimista em caso de erro
+      setChatMessages(prev => prev.filter(m => m.id !== tempId));
       setChatInput(textToSend); // Restaurar se falhar
     }
   }

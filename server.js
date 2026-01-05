@@ -1447,10 +1447,10 @@ wss.on('connection', (ws, req) => {
             });
           }
           
-          // Confirmar recebimento para o cliente
+          // Enviar mensagem de volta para o cliente que enviou (para substituir mensagem temporária)
           ws.send(JSON.stringify({
-            type: 'message_sent',
-            messageId: message.id
+            type: 'new_message',
+            message
           }));
         }
       } else if (msg.type === 'admin_message' && msg.callId && userId) {

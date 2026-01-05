@@ -159,21 +159,42 @@ export default function ConversationsPage() {
   async function sendMessage() {
     if (!selectedConv || !messageInput.trim()) return;
 
+    const textToSend = messageInput.trim();
+    setMessageInput(""); // Limpar input imediatamente
+
+    // Optimistic update: adicionar mensagem imediatamente
+    const tempId = `temp-${Date.now()}`;
+    const optimisticMessage: Message = {
+      id: tempId,
+      text: textToSend,
+      fromUser: false, // Admin envia
+      timestamp: new Date().toISOString()
+    };
+    setMessages(prev => [...prev, optimisticMessage]);
+
     try {
       const resp = await apiFetch(`/api/conversation/${selectedConv}/message`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: messageInput.trim() })
+        body: JSON.stringify({ text: textToSend })
       });
       
       const data = await resp.json();
       if (data.message) {
-        setMessages(prev => [...prev, data.message]);
-        setMessageInput("");
+        // Substituir mensagem temporária pela real quando chegar
+        setMessages(prev => {
+          const filtered = prev.filter(m => m.id !== tempId);
+          const exists = filtered.some(m => m.id === data.message.id);
+          if (exists) return filtered;
+          return [...filtered, data.message];
+        });
         await loadConversations();
       }
     } catch (e) {
       console.error('Erro ao enviar mensagem:', e);
+      // Remover mensagem otimista em caso de erro
+      setMessages(prev => prev.filter(m => m.id !== tempId));
+      setMessageInput(textToSend); // Restaurar se falhar
     }
   }
 

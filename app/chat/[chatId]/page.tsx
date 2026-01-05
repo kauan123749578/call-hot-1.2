@@ -63,16 +63,18 @@ export default function ChatOnlyPage({ params }: { params: { chatId: string } })
           // Carregar histórico
           setMessages(data.messages || []);
         } else if (data.type === 'new_message' && data.message) {
-          // Nova mensagem recebida (do admin)
+          // Nova mensagem recebida (do admin ou confirmação da mensagem enviada)
           setMessages(prev => {
             // Verificar se mensagem já existe para evitar duplicação
             const exists = prev.some(m => m.id === data.message.id);
             if (exists) return prev;
-            return [...prev, data.message];
+            
+            // Se for uma mensagem do cliente (fromUser: true), pode ser confirmação
+            // Remover mensagem temporária se existir (mesmo texto)
+            const filtered = prev.filter(m => !(m.id.startsWith('temp-') && m.text === data.message.text && m.fromUser === data.message.fromUser));
+            
+            return [...filtered, data.message];
           });
-        } else if (data.type === 'message_sent') {
-          // Confirmação de envio
-          console.log('Mensagem enviada:', data.messageId);
         }
       } catch (e) {
         console.error('Erro ao processar mensagem WebSocket:', e);
@@ -116,14 +118,23 @@ export default function ChatOnlyPage({ params }: { params: { chatId: string } })
     const text = messageInput.trim();
     if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
 
+    // Optimistic update: adicionar mensagem imediatamente
+    const tempId = `temp-${Date.now()}`;
+    const optimisticMessage: Message = {
+      id: tempId,
+      text: text,
+      fromUser: true, // Cliente envia
+      timestamp: new Date().toISOString()
+    };
+    setMessages(prev => [...prev, optimisticMessage]);
+    setMessageInput("");
+
     // Enviar via WebSocket
     ws.send(JSON.stringify({
       type: 'chat_message',
       callId: chatId,
       text: text
     }));
-
-    setMessageInput("");
   }
 
   function formatDate(dateStr: string) {
