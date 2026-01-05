@@ -1108,7 +1108,7 @@ export default function DashboardPage() {
                   
                   {/* Preview do Vídeo */}
                   {selectedConvCallData?.videoUrl ? (
-                    <div className="relative w-full aspect-video bg-black border-b border-neutral-800 flex items-center justify-center overflow-hidden group cursor-pointer" onClick={() => window.open(`/video/${selectedConvCallData.callId}`, '_blank')}>
+                    <div className="relative w-full aspect-video bg-black border-b border-neutral-800 overflow-hidden">
                       <video
                         src={selectedConvCallData.videoUrl}
                         className="w-full h-full object-cover"
@@ -1117,11 +1117,6 @@ export default function DashboardPage() {
                         playsInline
                         autoPlay
                       />
-                      <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-                        <div className="bg-black/60 rounded-full p-3 backdrop-blur-sm group-hover:bg-black/70 transition-colors">
-                          <Play className="w-6 h-6 text-white" fill="white" />
-                        </div>
-                      </div>
                     </div>
                   ) : (
                     <div className="relative w-full aspect-video bg-neutral-900 border-b border-neutral-800 flex items-center justify-center">
