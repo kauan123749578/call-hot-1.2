@@ -35,7 +35,6 @@
     const hangupBtn = document.getElementById('hangupBtn');
     const cameraBtn = document.getElementById('cameraBtn');
     const micBtn = document.getElementById('micBtn');
-    const speakerBtn = document.getElementById('speakerBtn');
     const selfWrap = document.getElementById('selfPreviewWrap');
     const selfVideo = document.getElementById('selfPreview');
     
@@ -53,7 +52,6 @@
     let chatOpen = false;
     let messages = [];
     let micMuted = false;
-    let speakerMuted = false;
 
     function startTimer() {
       if (timerInterval) return;
