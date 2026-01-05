@@ -1115,6 +1115,7 @@ export default function DashboardPage() {
                         muted
                         loop
                         playsInline
+                        autoPlay
                       />
                       <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition-colors flex items-center justify-center">
                         <div className="bg-black/60 rounded-full p-3 backdrop-blur-sm group-hover:bg-black/70 transition-colors">

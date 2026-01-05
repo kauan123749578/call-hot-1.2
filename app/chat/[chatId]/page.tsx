@@ -21,6 +21,24 @@ export default function ChatOnlyPage({ params }: { params: { chatId: string } })
   const [messageInput, setMessageInput] = React.useState("");
   const [ws, setWs] = React.useState<WebSocket | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
+  const [isAdmin, setIsAdmin] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const audioInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Verificar se é admin
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const resp = await apiFetch("/api/auth/me");
+        if (resp.ok) {
+          setIsAdmin(true);
+        }
+      } catch (e) {
+        setIsAdmin(false);
+      }
+    })();
+  }, []);
 
   React.useEffect(() => {
     (async () => {
@@ -63,19 +81,12 @@ export default function ChatOnlyPage({ params }: { params: { chatId: string } })
         const data = JSON.parse(event.data);
 
         if (data.type === 'chat_history' && Array.isArray(data.messages)) {
-          // Carregar histórico
           setMessages(data.messages || []);
         } else if (data.type === 'new_message' && data.message) {
-          // Nova mensagem recebida (do admin ou confirmação da mensagem enviada)
           setMessages(prev => {
-            // Verificar se mensagem já existe para evitar duplicação
             const exists = prev.some(m => m.id === data.message.id);
             if (exists) return prev;
-            
-            // Se for uma mensagem do cliente (fromUser: true), pode ser confirmação
-            // Remover mensagem temporária se existir (mesmo texto)
             const filtered = prev.filter(m => !(m.id.startsWith('temp-') && m.text === data.message.text && m.fromUser === data.message.fromUser));
-            
             return [...filtered, data.message];
           });
         }
@@ -89,7 +100,6 @@ export default function ChatOnlyPage({ params }: { params: { chatId: string } })
     };
 
     websocket.onclose = () => {
-      // Reconectar após 3 segundos
       setTimeout(() => {
         if (loading === false) {
           // Só reconecta se não estiver em loading
@@ -117,27 +127,93 @@ export default function ChatOnlyPage({ params }: { params: { chatId: string } })
     };
   }, [chatId, loading]);
 
-  function sendMessage() {
+  async function sendMessage() {
     const text = messageInput.trim();
-    if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+    const fileToSend = selectedFile;
+    
+    if (!text && !fileToSend) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-    // Optimistic update: adicionar mensagem imediatamente
+    let mediaType: 'image' | 'video' | 'audio' | undefined = undefined;
+    let mediaUrl: string | undefined = undefined;
+
+    // Upload de arquivo se houver (apenas admin para áudio)
+    if (fileToSend) {
+      const fileType = fileToSend.type;
+      if (fileType.startsWith('audio/') && !isAdmin) {
+        alert('Apenas administradores podem enviar áudio');
+        setSelectedFile(null);
+        return;
+      }
+
+      try {
+        const formData = new FormData();
+        formData.append('media', fileToSend);
+        
+        const uploadResp = await apiFetch('/api/chat-media/upload', {
+          method: 'POST',
+          body: formData
+        });
+        
+        if (!uploadResp.ok) {
+          throw new Error('Erro ao fazer upload');
+        }
+        
+        const uploadData = await uploadResp.json();
+        mediaUrl = uploadData.mediaUrl;
+        mediaType = uploadData.mediaType as 'image' | 'video' | 'audio';
+      } catch (e) {
+        console.error('Erro ao fazer upload:', e);
+        alert('Erro ao enviar arquivo');
+        setSelectedFile(null);
+        return;
+      }
+    }
+
+    // Optimistic update
     const tempId = `temp-${Date.now()}`;
     const optimisticMessage: Message = {
       id: tempId,
-      text: text,
-      fromUser: true, // Cliente envia
-      timestamp: new Date().toISOString()
+      text: text || '',
+      fromUser: !isAdmin, // Cliente envia se não for admin
+      timestamp: new Date().toISOString(),
+      mediaType,
+      mediaUrl
     };
     setMessages(prev => [...prev, optimisticMessage]);
     setMessageInput("");
+    setSelectedFile(null);
 
-    // Enviar via WebSocket
-    ws.send(JSON.stringify({
-      type: 'chat_message',
-      callId: chatId,
-      text: text
-    }));
+    // Enviar via WebSocket (client) ou API (admin)
+    if (isAdmin && mediaType) {
+      // Admin com mídia envia via API
+      try {
+        const resp = await apiFetch(`/api/conversation/${chatId}/message`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, mediaType, mediaUrl })
+        });
+        const data = await resp.json();
+        if (data.message) {
+          setMessages(prev => {
+            const filtered = prev.filter(m => m.id !== tempId);
+            const exists = filtered.some(m => m.id === data.message.id);
+            if (exists) return filtered;
+            return [...filtered, data.message];
+          });
+        }
+      } catch (e) {
+        console.error('Erro ao enviar mensagem:', e);
+        setMessages(prev => prev.filter(m => m.id !== tempId));
+      }
+    } else {
+      // Cliente envia via WebSocket
+      ws.send(JSON.stringify({
+        type: 'chat_message',
+        callId: chatId,
+        text: text || ''
+      }));
+    }
   }
 
   function formatDate(dateStr: string) {
@@ -149,6 +225,18 @@ export default function ChatOnlyPage({ params }: { params: { chatId: string } })
       hour: '2-digit',
       minute: '2-digit'
     });
+  }
+
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) {
+      const fileType = file.type;
+      if (fileType.startsWith('audio/') && !isAdmin) {
+        alert('Apenas administradores podem enviar áudio');
+        return;
+      }
+      setSelectedFile(file);
+    }
   }
 
   function handleCall() {
@@ -212,7 +300,30 @@ export default function ChatOnlyPage({ params }: { params: { chatId: string } })
                       : 'bg-neutral-800 border border-neutral-700 text-white'
                   }`}
                 >
-                  <p className="text-sm">{msg.text}</p>
+                  {msg.mediaType === 'image' && msg.mediaUrl && (
+                    <img 
+                      src={msg.mediaUrl} 
+                      alt="Imagem" 
+                      className="max-w-full h-auto rounded mb-2"
+                      style={{ maxHeight: '400px' }}
+                    />
+                  )}
+                  {msg.mediaType === 'video' && msg.mediaUrl && (
+                    <video 
+                      src={msg.mediaUrl} 
+                      controls 
+                      className="max-w-full h-auto rounded mb-2"
+                      style={{ maxHeight: '400px' }}
+                    />
+                  )}
+                  {msg.mediaType === 'audio' && msg.mediaUrl && (
+                    <audio 
+                      src={msg.mediaUrl} 
+                      controls 
+                      className="max-w-full mb-2"
+                    />
+                  )}
+                  {msg.text && <p className="text-sm">{msg.text}</p>}
                   <p className="text-xs text-white/40 mt-1">
                     {formatDate(msg.timestamp)}
                   </p>
@@ -225,30 +336,74 @@ export default function ChatOnlyPage({ params }: { params: { chatId: string } })
 
       {/* Input Area */}
       <div className="bg-neutral-900/80 border-t border-neutral-800 p-4">
-        <div className="max-w-4xl mx-auto flex gap-2">
-          <input
-            type="text"
-            value={messageInput}
-            onChange={(e) => setMessageInput(e.target.value)}
-            onKeyPress={(e) => {
-              if (e.key === 'Enter') {
-                sendMessage();
-              }
-            }}
-            placeholder="Diga algo..."
-            className="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-4 py-3 text-white placeholder:text-white/50 focus:outline-none focus:border-red-500"
-          />
-          <button
-            onClick={sendMessage}
-            disabled={!messageInput.trim() || !ws || ws.readyState !== WebSocket.OPEN}
-            className="px-4 py-3 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center gap-2"
-          >
-            <Send className="w-4 h-4" />
-            Enviar
-          </button>
+        <div className="max-w-4xl mx-auto">
+          {selectedFile && (
+            <div className="mb-2 flex items-center gap-2 p-2 bg-neutral-800 rounded-lg">
+              <span className="text-sm text-white flex-1 truncate">{selectedFile.name}</span>
+              <button
+                onClick={() => setSelectedFile(null)}
+                className="p-1 hover:bg-neutral-700 rounded"
+              >
+                <X className="w-4 h-4 text-white" />
+              </button>
+            </div>
+          )}
+          <div className="flex gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,video/*"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+            {isAdmin && (
+              <input
+                ref={audioInputRef}
+                type="file"
+                accept="audio/*"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+            )}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="px-3 py-3 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg transition-colors flex items-center gap-2"
+              title="Enviar imagem ou vídeo"
+            >
+              <Image className="w-4 h-4" />
+            </button>
+            {isAdmin && (
+              <button
+                onClick={() => audioInputRef.current?.click()}
+                className="px-3 py-3 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg transition-colors flex items-center gap-2"
+                title="Enviar áudio (apenas admin)"
+              >
+                <Mic className="w-4 h-4" />
+              </button>
+            )}
+            <input
+              type="text"
+              value={messageInput}
+              onChange={(e) => setMessageInput(e.target.value)}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  sendMessage();
+                }
+              }}
+              placeholder="Diga algo..."
+              className="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-4 py-3 text-white placeholder:text-white/50 focus:outline-none focus:border-red-500"
+            />
+            <button
+              onClick={sendMessage}
+              disabled={(!messageInput.trim() && !selectedFile) || !ws || ws.readyState !== WebSocket.OPEN}
+              className="px-4 py-3 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center gap-2"
+            >
+              <Send className="w-4 h-4" />
+              Enviar
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 }
-
