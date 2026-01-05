@@ -159,7 +159,7 @@ function getOrCreateConversation(callId, callerName, ownerUserId) {
   return conversations.get(callId);
 }
 
-function addMessageToConversation(callId, text, fromUser = false, ownerUserId = null) {
+function addMessageToConversation(callId, text, fromUser = false, ownerUserId = null, mediaType = null, mediaUrl = null, audioDuration = null) {
   const conv = conversations.get(callId);
   if (!conv) return null;
   
@@ -169,6 +169,14 @@ function addMessageToConversation(callId, text, fromUser = false, ownerUserId = 
     fromUser,
     timestamp: new Date().toISOString()
   };
+  
+  if (mediaType && mediaUrl) {
+    message.mediaType = mediaType;
+    message.mediaUrl = mediaUrl;
+    if (mediaType === 'audio' && audioDuration) {
+      message.audioDuration = audioDuration;
+    }
+  }
   
   conv.messages.push(message);
   conv.updatedAt = new Date().toISOString();
@@ -706,6 +714,25 @@ const uploadAvatar = multer({
   }
 });
 
+// Upload para mídia do chat
+const chatMediaDir = path.join(uploadsDir, 'chat-media');
+if (!fs.existsSync(chatMediaDir)) fs.mkdirSync(chatMediaDir, { recursive: true });
+
+const uploadChatMedia = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, chatMediaDir),
+    filename: (req, file, cb) => cb(null, `${uuidv4()}-${file.originalname}`)
+  }),
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/') || file.mimetype.startsWith('audio/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Apenas imagens, vídeos e áudio são permitidos'));
+    }
+  }
+});
+
 // Middleware Global
 app.use(cors());
 app.use(express.json({ limit: '1000mb' }));
@@ -800,6 +827,21 @@ app.post('/api/upload-video', requireAuth, upload.single('video'), (req, res) =>
 app.post('/api/upload-avatar', requireAuth, uploadAvatar.single('avatar'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
   res.json({ avatarUrl: `/uploads/avatars/${req.file.filename}`, filename: req.file.filename });
+});
+
+// Upload de mídia do chat (apenas admin)
+app.post('/api/chat-media/upload', requireAuth, uploadChatMedia.single('media'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+  
+  let mediaType = 'image';
+  if (req.file.mimetype.startsWith('video/')) mediaType = 'video';
+  else if (req.file.mimetype.startsWith('audio/')) mediaType = 'audio';
+  
+  res.json({ 
+    mediaUrl: `/uploads/chat-media/${req.file.filename}`, 
+    filename: req.file.filename,
+    mediaType: mediaType
+  });
 });
 
 // --- API CALLS ---
@@ -998,12 +1040,12 @@ app.post('/api/conversation/:chatId/link-call', requireAuth, (req, res) => {
 });
 
 app.post('/api/conversation/:callId/message', requireAuth, (req, res) => {
-  const { text } = req.body;
+  const { text, mediaType, mediaUrl, audioDuration } = req.body;
   const conv = conversations.get(req.params.callId);
   if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
   if (conv.ownerUserId !== req.userId) return res.status(403).json({ error: 'Sem permissão' });
   
-  const message = addMessageToConversation(req.params.callId, text, false, req.userId); // false = admin
+  const message = addMessageToConversation(req.params.callId, text || '', false, req.userId, mediaType || null, mediaUrl || null, audioDuration || null); // false = admin
   
   if (message) {
     // Enviar via WebSocket para clientes conectados
@@ -1033,6 +1075,18 @@ app.post('/api/conversation/:callId/message', requireAuth, (req, res) => {
   }
   
   res.json({ message });
+});
+
+// Deletar conversa
+app.delete('/api/conversation/:callId', requireAuth, (req, res) => {
+  const conv = conversations.get(req.params.callId);
+  if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+  if (conv.ownerUserId !== req.userId) return res.status(403).json({ error: 'Sem permissão' });
+  
+  conversations.delete(req.params.callId);
+  persistConversations();
+  
+  res.json({ ok: true });
 });
 
 // --- API AUTOMAÇÕES ---
@@ -1341,6 +1395,7 @@ app.get('/uploads/:filename', (req, res) => {
 });
 
 app.use(express.static('public', { index: false }));
+app.use('/uploads/chat-media', express.static('public/uploads/chat-media'));
 app.use('/uploads/avatars', express.static('public/uploads/avatars'));
 
 // --- NEXT.JS INTEGRATION ---

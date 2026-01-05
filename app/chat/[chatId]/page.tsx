@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { MessageSquare, Send, Phone } from "lucide-react";
+import { MessageSquare, Send, Phone, Image, Video, Mic, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 type Message = {
@@ -9,6 +9,9 @@ type Message = {
   text: string;
   fromUser: boolean;
   timestamp: string;
+  mediaType?: 'image' | 'video' | 'audio';
+  mediaUrl?: string;
+  audioDuration?: number;
 };
 
 export default function ChatOnlyPage({ params }: { params: { chatId: string } }) {

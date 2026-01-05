@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/lib/api";
-import { MessageSquare, Send, Phone, X, Play } from "lucide-react";
+import { MessageSquare, Send, Phone, X, Play, Trash2 } from "lucide-react";
 
 type CallItem = {
   callId: string;
@@ -367,6 +367,29 @@ export default function DashboardPage() {
     } catch (e: any) {
       console.error('Erro ao criar chat:', e);
       showToast('Erro ao criar chat: ' + (e?.message || 'Erro desconhecido'));
+    }
+  }
+
+  async function deleteConversation(callId: string) {
+    if (!window.confirm('Tem certeza que deseja excluir esta conversa?')) return;
+    
+    try {
+      const resp = await apiFetch(`/api/conversation/${callId}`, {
+        method: "DELETE"
+      });
+      
+      if (resp.ok) {
+        if (selectedConv === callId) {
+          setSelectedConv(null);
+          setChatMessages([]);
+          setSelectedConvCallData(null);
+        }
+        await loadConversations();
+        showToast('Conversa excluída com sucesso');
+      }
+    } catch (e: any) {
+      console.error('Erro ao excluir conversa:', e);
+      showToast('Erro ao excluir conversa: ' + (e?.message || 'Erro desconhecido'));
     }
   }
 
@@ -880,8 +903,8 @@ export default function DashboardPage() {
           </div>
 
           {/* Gráfico e Lista */}
-          <div className="flex flex-col z-10">
-            <div className="flex-shrink-0 p-3 lg:p-4">
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden z-10">
+            <div className="flex-shrink-0 p-3 lg:p-4 border-b border-neutral-800">
               <div className="flex items-center justify-between mb-2 lg:mb-3 px-1">
                 <span className="text-[9px] lg:text-[10px] font-bold text-gray-500 uppercase tracking-wider">Vendas (30 dias)</span>
               </div>
@@ -912,8 +935,8 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Lista de Calls */}
-            <div className="px-3 lg:px-4 pb-3 lg:pb-10">
+            {/* Lista de Calls - Scrollável */}
+            <div className="flex-1 overflow-y-auto px-3 lg:px-4 py-3 lg:py-4">
               <div className="mb-2 lg:mb-4">
                 <span className="text-[9px] lg:text-[10px] font-bold text-gray-500 uppercase tracking-wider">Calls Criadas</span>
               </div>
@@ -1032,24 +1055,35 @@ export default function DashboardPage() {
                     {conversations.map((conv) => (
                       <div
                         key={conv.callId}
-                        onClick={() => selectConversation(conv.callId)}
-                        className={`p-2.5 rounded-lg cursor-pointer transition-colors border ${
+                        className={`group relative p-2.5 rounded-lg cursor-pointer transition-colors border ${
                           selectedConv === conv.callId
                             ? 'bg-neutral-800 border-red-500/50'
                             : 'bg-neutral-900/50 border-neutral-800 hover:bg-neutral-800'
                         }`}
                       >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-[11px] font-semibold text-white truncate">
-                            {conv.callerName || `Conv ${conv.callId.substring(0, 4)}`}
+                        <div onClick={() => selectConversation(conv.callId)}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[11px] font-semibold text-white truncate pr-6">
+                              {conv.callerName || `Conv ${conv.callId.substring(0, 4)}`}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-white/60 truncate mb-1">
+                            {conv.lastMessage ? (conv.lastMessage.fromUser ? 'Cliente: ' : 'Você: ') + conv.lastMessage.text : 'Sem mensagens'}
+                          </p>
+                          <span className="text-[9px] text-white/40">
+                            {new Date(conv.updatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         </div>
-                        <p className="text-[10px] text-white/60 truncate mb-1">
-                          {conv.lastMessage ? (conv.lastMessage.fromUser ? 'Cliente: ' : 'Você: ') + conv.lastMessage.text : 'Sem mensagens'}
-                        </p>
-                        <span className="text-[9px] text-white/40">
-                          {new Date(conv.updatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                        </span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteConversation(conv.callId);
+                          }}
+                          className="absolute top-2 right-2 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600/20 text-red-400 hover:text-red-300 z-10"
+                          title="Excluir conversa"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
                       </div>
                     ))}
                   </div>
