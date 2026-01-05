@@ -369,6 +369,69 @@
     .btn-chat.active {
       background: rgba(139, 92, 246, 1);
     }
+
+    .btn-reaction {
+      background: rgba(255, 193, 7, 0.8);
+    }
+
+    .btn-reaction:hover {
+      background: rgba(255, 193, 7, 1);
+    }
+
+    .btn-reaction.active {
+      background: rgba(255, 193, 7, 1);
+    }
+
+    .reaction-picker {
+      position: absolute;
+      bottom: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(30, 30, 30, 0.95);
+      border-radius: 24px;
+      padding: 12px;
+      display: none;
+      gap: 8px;
+      z-index: 25;
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+
+    .reaction-picker.show {
+      display: flex;
+    }
+
+    .reaction-emoji {
+      font-size: 28px;
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      border-radius: 50%;
+      transition: transform 0.2s, background 0.2s;
+    }
+
+    .reaction-emoji:hover {
+      transform: scale(1.2);
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .reaction-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 24;
+      display: none;
+    }
+
+    .reaction-overlay.show {
+      display: block;
+    }
   </style>
 </head>
 
@@ -388,12 +451,33 @@
     </div>
 
     <div class="controls">
+      <button class="btn" id="micBtn" title="Microfone">
+        <svg viewBox="0 0 24 24" id="micIcon">
+          <path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>
+        </svg>
+        <span class="btn-label">Microfone</span>
+      </button>
+
+      <button class="btn" id="speakerBtn" title="Alto-falante">
+        <svg viewBox="0 0 24 24" id="speakerIcon">
+          <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+        </svg>
+        <span class="btn-label">Alto-falante</span>
+      </button>
+
       <button class="btn" id="cameraBtn" title="Câmera">
         <svg viewBox="0 0 24 24" id="cameraIcon">
           <path
             d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z" />
         </svg>
         <span class="btn-label">Vídeo</span>
+      </button>
+
+      <button class="btn btn-reaction" id="reactionBtn" title="Reagir">
+        <svg viewBox="0 0 24 24" id="reactionIcon">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-5.5-2.5l7.51-3.49L17.5 6.5 9.99 10l-3.49-2.5zm5.51-3.49L17.5 6.5l-7.51 3.49L6.5 12.01z"/>
+        </svg>
+        <span class="btn-label">Reagir</span>
       </button>
 
       <button class="btn btn-chat" id="chatBtn" title="Chat">
@@ -447,6 +531,16 @@
         <div class="overlay-sub">Você pode fechar esta aba com segurança.</div>
         <button class="btn" id="endedBtn" type="button">Fechar</button>
       </div>
+    </div>
+
+    <!-- Reaction Picker -->
+    <div class="reaction-overlay" id="reactionOverlay"></div>
+    <div class="reaction-picker" id="reactionPicker">
+      <div class="reaction-emoji" data-emoji="👍">👍</div>
+      <div class="reaction-emoji" data-emoji="❤️">❤️</div>
+      <div class="reaction-emoji" data-emoji="😊">😊</div>
+      <div class="reaction-emoji" data-emoji="🔥">🔥</div>
+      <div class="reaction-emoji" data-emoji="👏">👏</div>
     </div>
   </div>
 
