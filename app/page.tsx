@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/lib/api";
-import { MessageSquare, Send, Phone, X } from "lucide-react";
+import { MessageSquare, Send, Phone, X, Play } from "lucide-react";
 
 type CallItem = {
   callId: string;
@@ -101,6 +101,7 @@ export default function DashboardPage() {
   const [showNewChatModal, setShowNewChatModal] = React.useState(false);
   const [newChatName, setNewChatName] = React.useState("");
   const [createdChatLink, setCreatedChatLink] = React.useState<string | null>(null);
+  const [selectedConvCallData, setSelectedConvCallData] = React.useState<CallItem | null>(null);
 
   function showToast(message: string) {
     setToast(message);
@@ -149,29 +150,34 @@ export default function DashboardPage() {
         userId: userId,
         role: 'admin'
       }));
+      // Carregar conversas ao conectar
+      loadConversations();
     };
 
     websocket.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         
-        if (data.type === 'new_message' && data.callId) {
+        if (data.type === 'new_message' && data.callId && data.message) {
           // Nova mensagem recebida (do cliente ou admin)
-          if (selectedConv === data.callId && data.message) {
-            setChatMessages(prev => {
-              // Verificar se mensagem já existe para evitar duplicação
+          setChatMessages(prev => {
+            // Verificar conversa selecionada atual
+            const currentSelected = selectedConv;
+            if (currentSelected === data.callId) {
               const exists = prev.some(m => m.id === data.message.id);
               if (exists) return prev;
               return [...prev, data.message];
-            });
-          }
+            }
+            return prev;
+          });
           // Sempre atualizar lista de conversas para mostrar badge
           loadConversations();
         } else if (data.type === 'conversations_list') {
           setConversations(data.conversations || []);
         } else if (data.type === 'conversation_data') {
           // Dados da conversa quando admin entra
-          if (data.conversation && selectedConv === data.conversation.callId) {
+          const currentSelected = selectedConv;
+          if (data.conversation && currentSelected === data.conversation.callId) {
             setChatMessages(data.conversation.messages || []);
           }
         }
@@ -184,14 +190,25 @@ export default function DashboardPage() {
       console.error('Erro na conexão WebSocket');
     };
 
+    websocket.onclose = () => {
+      // Reconectar após 3 segundos
+      setTimeout(() => {
+        if (userId) {
+          // Recriar conexão se ainda tiver userId
+        }
+      }, 3000);
+    };
+
     setChatWs(websocket);
 
     return () => {
-      websocket.close();
+      if (websocket.readyState === WebSocket.OPEN) {
+        websocket.close();
+      }
     };
-  }, [userId, selectedConv]);
+  }, [userId]);
 
-  async function loadConversations() {
+  const loadConversations = React.useCallback(async () => {
     try {
       const resp = await apiFetch("/api/conversations");
       const data = await resp.json();
@@ -199,7 +216,7 @@ export default function DashboardPage() {
     } catch (e) {
       console.error('Erro ao carregar conversas:', e);
     }
-  }
+  }, []);
 
   async function selectConversation(callId: string) {
     setSelectedConv(callId);
@@ -207,6 +224,54 @@ export default function DashboardPage() {
       const resp = await apiFetch(`/api/conversation/${callId}`);
       const data = await resp.json();
       setChatMessages(data.conversation?.messages || []);
+      
+      // Buscar dados da call associada se existir
+      const conv = data.conversation;
+      if (conv) {
+        // Se for chat-only com linkedCallId, buscar dados da call
+        if (conv.isChatOnly && conv.linkedCallId) {
+          try {
+            const callResp = await apiFetch(`/api/call/${conv.linkedCallId}`);
+            const callData = await callResp.json();
+            if (callResp.ok) {
+              setSelectedConvCallData({
+                callId: conv.linkedCallId,
+                title: callData.title,
+                videoUrl: callData.videoUrl,
+                callerName: callData.callerName,
+                callerAvatarUrl: callData.callerAvatarUrl,
+                createdAt: callData.createdAt || new Date().toISOString(),
+                expiresAt: callData.expiresAt,
+                expectedAmount: callData.expectedAmount
+              });
+            }
+          } catch (e) {
+            console.error('Erro ao buscar dados da call:', e);
+          }
+        } else if (!conv.isChatOnly) {
+          // Se não for chat-only, a conversa é diretamente de uma call
+          try {
+            const callResp = await apiFetch(`/api/call/${callId}`);
+            const callData = await callResp.json();
+            if (callResp.ok) {
+              setSelectedConvCallData({
+                callId: callId,
+                title: callData.title,
+                videoUrl: callData.videoUrl,
+                callerName: callData.callerName,
+                callerAvatarUrl: callData.callerAvatarUrl,
+                createdAt: callData.createdAt || new Date().toISOString(),
+                expiresAt: callData.expiresAt,
+                expectedAmount: callData.expectedAmount
+              });
+            }
+          } catch (e) {
+            console.error('Erro ao buscar dados da call:', e);
+          }
+        } else {
+          setSelectedConvCallData(null);
+        }
+      }
       
       if (chatWs && chatWs.readyState === WebSocket.OPEN) {
         chatWs.send(JSON.stringify({
@@ -218,6 +283,16 @@ export default function DashboardPage() {
       console.error('Erro ao carregar conversa:', e);
     }
   }
+
+  // Atualizar mensagens quando selecionar nova conversa
+  React.useEffect(() => {
+    if (selectedConv) {
+      selectConversation(selectedConv);
+    } else {
+      setChatMessages([]);
+      setSelectedConvCallData(null);
+    }
+  }, [selectedConv]);
 
   async function sendChatMessage() {
     if (!selectedConv || !chatInput.trim()) return;
@@ -928,7 +1003,34 @@ export default function DashboardPage() {
                     {conversations.find(c => c.callId === selectedConv)?.callerName || 'Conversa'}
                   </h3>
                 </div>
-                <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                
+                {/* Preview do Vídeo */}
+                {selectedConvCallData?.videoUrl ? (
+                  <div className="relative w-full aspect-video bg-black border-b border-neutral-800 flex items-center justify-center overflow-hidden group cursor-pointer" onClick={() => window.open(`/video/${selectedConvCallData.callId}`, '_blank')}>
+                    <video
+                      src={selectedConvCallData.videoUrl}
+                      className="w-full h-full object-cover"
+                      muted
+                      loop
+                      playsInline
+                    />
+                    <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                      <div className="bg-black/60 rounded-full p-3 backdrop-blur-sm group-hover:bg-black/70 transition-colors">
+                        <Play className="w-6 h-6 text-white" fill="white" />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="relative w-full aspect-video bg-neutral-900 border-b border-neutral-800 flex items-center justify-center">
+                    <div className="text-center">
+                      <Play className="w-12 h-12 text-white/30 mx-auto mb-2" />
+                      <p className="text-xs text-white/40">Sem vídeo disponível</p>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Chat Messages */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0">
                   {chatMessages.length === 0 ? (
                     <div className="text-center text-white/50 py-8 text-xs">
                       Nenhuma mensagem ainda

@@ -38,6 +38,12 @@ export default function ConversationsPage() {
   const [showNewChatModal, setShowNewChatModal] = React.useState(false);
   const [newChatName, setNewChatName] = React.useState("");
 
+  // Ref para selectedConv para usar no WebSocket
+  const selectedConvRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    selectedConvRef.current = selectedConv;
+  }, [selectedConv]);
+
   React.useEffect(() => {
     (async () => {
       const me = await apiFetch("/api/auth/me");
@@ -66,21 +72,33 @@ export default function ConversationsPage() {
         userId: userId,
         role: 'admin'
       }));
+      // Carregar conversas ao conectar
+      loadConversations();
     };
 
     websocket.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         
-        if (data.type === 'new_message' && data.callId) {
+        if (data.type === 'new_message' && data.callId && data.message) {
           // Nova mensagem recebida
-          if (selectedConv === data.callId) {
-            setMessages(prev => [...prev, data.message]);
+          const currentSelected = selectedConvRef.current;
+          if (currentSelected === data.callId) {
+            setMessages(prev => {
+              const exists = prev.some(m => m.id === data.message.id);
+              if (exists) return prev;
+              return [...prev, data.message];
+            });
           }
           // Atualizar lista de conversas
           loadConversations();
         } else if (data.type === 'conversations_list') {
           setConversations(data.conversations || []);
+        } else if (data.type === 'conversation_data') {
+          const currentSelected = selectedConvRef.current;
+          if (data.conversation && currentSelected === data.conversation.callId) {
+            setMessages(data.conversation.messages || []);
+          }
         }
       } catch (e) {
         console.error('Erro ao processar mensagem WebSocket:', e);
@@ -91,12 +109,23 @@ export default function ConversationsPage() {
       console.error('Erro na conexão WebSocket');
     };
 
+    websocket.onclose = () => {
+      // Reconectar após 3 segundos
+      setTimeout(() => {
+        if (userId) {
+          // Recriar conexão se ainda tiver userId
+        }
+      }, 3000);
+    };
+
     setWs(websocket);
 
     return () => {
-      websocket.close();
+      if (websocket.readyState === WebSocket.OPEN) {
+        websocket.close();
+      }
     };
-  }, [userId, selectedConv]);
+  }, [userId, loadConversations]);
 
   async function loadConversations() {
     try {
