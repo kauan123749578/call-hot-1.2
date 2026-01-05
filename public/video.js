@@ -36,9 +36,6 @@
     const cameraBtn = document.getElementById('cameraBtn');
     const micBtn = document.getElementById('micBtn');
     const speakerBtn = document.getElementById('speakerBtn');
-    const reactionBtn = document.getElementById('reactionBtn');
-    const reactionPicker = document.getElementById('reactionPicker');
-    const reactionOverlay = document.getElementById('reactionOverlay');
     const selfWrap = document.getElementById('selfPreviewWrap');
     const selfVideo = document.getElementById('selfPreview');
     
@@ -57,7 +54,6 @@
     let messages = [];
     let micMuted = false;
     let speakerMuted = false;
-    let reactionPickerOpen = false;
 
     function startTimer() {
       if (timerInterval) return;
