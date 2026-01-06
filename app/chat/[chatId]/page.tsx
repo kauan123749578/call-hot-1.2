@@ -26,13 +26,17 @@ export default function ChatOnlyPage({ params }: { params: { chatId: string } })
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const audioInputRef = React.useRef<HTMLInputElement>(null);
 
-  // Verificar se é admin
+  // Verificar se é admin (sem erro se não autenticado)
   React.useEffect(() => {
     (async () => {
       try {
-        const resp = await apiFetch("/api/auth/me");
+        const resp = await fetch("/api/auth/me", {
+          credentials: 'include'
+        });
         if (resp.ok) {
           setIsAdmin(true);
+        } else {
+          setIsAdmin(false);
         }
       } catch (e) {
         setIsAdmin(false);
@@ -313,12 +317,14 @@ export default function ChatOnlyPage({ params }: { params: { chatId: string } })
                   }`}
                 >
                   {msg.mediaType === 'image' && msg.mediaUrl && (
-                    <img 
-                      src={msg.mediaUrl} 
-                      alt="Imagem" 
-                      className="max-w-full h-auto rounded mb-2"
-                      style={{ maxHeight: '400px' }}
-                    />
+                    <div className="mb-2">
+                      <img 
+                        src={msg.mediaUrl} 
+                        alt="Imagem" 
+                        className="max-w-full h-auto rounded-lg object-cover"
+                        style={{ maxHeight: '300px', maxWidth: '100%' }}
+                      />
+                    </div>
                   )}
                   {msg.mediaType === 'video' && msg.mediaUrl && (
                     <video 
