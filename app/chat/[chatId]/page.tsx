@@ -16,7 +16,7 @@ type Message = {
 
 export default function ChatOnlyPage({ params }: { params: { chatId: string } }) {
   const chatId = params.chatId;
-  const [chatInfo, setChatInfo] = React.useState<{ callerName: string | null; linkedCallId: string | null; active: boolean } | null>(null);
+  const [chatInfo, setChatInfo] = React.useState<{ callerName: string | null; callerAvatarUrl: string | null; linkedCallId: string | null; active: boolean } | null>(null);
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [messageInput, setMessageInput] = React.useState("");
   const [ws, setWs] = React.useState<WebSocket | null>(null);
@@ -150,9 +150,11 @@ export default function ChatOnlyPage({ params }: { params: { chatId: string } })
         const formData = new FormData();
         formData.append('media', fileToSend);
         
-        const uploadResp = await apiFetch('/api/chat-media/upload', {
+        // Usar fetch ao invés de apiFetch para permitir upload sem autenticação (para clientes)
+        const uploadResp = await fetch('/api/chat-media/upload', {
           method: 'POST',
-          body: formData
+          body: formData,
+          credentials: 'include'
         });
         
         if (!uploadResp.ok) {
@@ -261,7 +263,17 @@ export default function ChatOnlyPage({ params }: { params: { chatId: string } })
       <div className="bg-neutral-900/80 border-b border-neutral-800 p-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <MessageSquare className="w-6 h-6 text-white" />
+            {chatInfo?.callerAvatarUrl ? (
+              <img 
+                src={chatInfo.callerAvatarUrl} 
+                alt="Avatar" 
+                className="w-10 h-10 rounded-full object-cover"
+              />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-neutral-700 flex items-center justify-center">
+                <MessageSquare className="w-5 h-5 text-white/50" />
+              </div>
+            )}
             <h1 className="text-xl font-bold text-white">
               {chatInfo?.callerName || 'Chat'}
             </h1>

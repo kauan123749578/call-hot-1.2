@@ -31,6 +31,7 @@ type Sale = {
 type Conversation = {
   callId: string;
   callerName: string | null;
+  callerAvatarUrl?: string | null;
   messageCount: number;
   lastMessage: {
     id: string;
@@ -100,6 +101,7 @@ export default function DashboardPage() {
   const [userId, setUserId] = React.useState<string | null>(null);
   const [showNewChatModal, setShowNewChatModal] = React.useState(false);
   const [newChatName, setNewChatName] = React.useState("");
+  const [newChatAvatar, setNewChatAvatar] = React.useState<File | null>(null);
   const [createdChatLink, setCreatedChatLink] = React.useState<string | null>(null);
   const [selectedConvCallData, setSelectedConvCallData] = React.useState<CallItem | null>(null);
 
@@ -349,10 +351,29 @@ export default function DashboardPage() {
     }
 
     try {
+      let avatarUrl: string | null = null;
+      
+      // Upload do avatar se houver
+      if (newChatAvatar) {
+        const formData = new FormData();
+        formData.append('avatar', newChatAvatar);
+        const avatarResp = await apiFetch('/api/upload-avatar', {
+          method: 'POST',
+          body: formData
+        });
+        if (avatarResp.ok) {
+          const avatarData = await avatarResp.json();
+          avatarUrl = avatarData.avatarUrl;
+        }
+      }
+
       const resp = await apiFetch('/api/conversations/chat-only', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ callerName: newChatName.trim() })
+        body: JSON.stringify({ 
+          callerName: newChatName.trim(),
+          callerAvatarUrl: avatarUrl
+        })
       });
       
       const data = await resp.json();
@@ -361,6 +382,7 @@ export default function DashboardPage() {
         setCreatedChatLink(chatLink);
         setShowNewChatModal(false);
         setNewChatName("");
+        setNewChatAvatar(null);
         await loadConversations();
         selectConversation(data.chatId);
       }
@@ -722,7 +744,7 @@ export default function DashboardPage() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col lg:flex-row relative">
+      <main className="flex-1 flex flex-col lg:flex-row relative min-h-0 overflow-hidden">
         {/* Overlay para mobile - sidebar configuração */}
         {sidebarOpen && (
           <div
@@ -731,7 +753,7 @@ export default function DashboardPage() {
           />
         )}
         {/* Sidebar Left - Configuração */}
-        <div className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} fixed lg:static inset-y-0 left-0 w-[300px] lg:w-[400px] border-r border-neutral-800 bg-[#0a0a0a] flex flex-col z-50 lg:z-10 shadow-2xl flex-shrink-0 transition-transform duration-300 ease-in-out h-screen lg:h-auto`}>
+        <div className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} fixed lg:static inset-y-0 left-0 w-[300px] lg:w-[400px] border-r border-neutral-800 bg-[#0a0a0a] flex flex-col z-50 lg:z-10 shadow-2xl flex-shrink-0 transition-transform duration-300 ease-in-out h-screen lg:h-full`}>
           {/* Botão de Menu no topo */}
           <div className="p-3 lg:p-4 border-b border-neutral-800 bg-neutral-900/50 flex-shrink-0">
             <button
@@ -885,7 +907,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Center - Gráfico */}
-        <div className="flex-1 bg-black flex flex-col relative min-w-0">
+        <div className="flex-1 bg-black flex flex-col relative min-w-0 min-h-0 overflow-hidden">
           {/* Stats Bar */}
           <div className="border-b border-neutral-800 bg-[#0a0a0a] z-10 flex-shrink-0 py-3 lg:py-6">
             <div className="grid grid-cols-3 h-full divide-x divide-neutral-800 gap-2 lg:gap-0">
@@ -906,8 +928,8 @@ export default function DashboardPage() {
 
           {/* Gráfico e Lista */}
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden z-10">
-            {/* Gráfico - Scrollável */}
-            <div className="flex-shrink-0 p-3 lg:p-4 border-b border-neutral-800 overflow-y-auto">
+            {/* Gráfico - Fixo (sem scroll) */}
+            <div className="flex-shrink-0 p-3 lg:p-4 border-b border-neutral-800">
               <div className="flex items-center justify-between mb-2 lg:mb-3 px-1">
                 <span className="text-[9px] lg:text-[10px] font-bold text-gray-500 uppercase tracking-wider">Vendas (30 dias)</span>
               </div>
@@ -1098,10 +1120,23 @@ export default function DashboardPage() {
             <div className="flex-1 flex flex-col overflow-hidden">
               {selectedConv ? (
                 <>
-                  <div className="p-3 border-b border-neutral-800 flex items-center justify-between">
-                    <h3 className="text-xs font-semibold text-white">
-                      {conversations.find(c => c.callId === selectedConv)?.callerName || 'Conversa'}
-                    </h3>
+                  <div className="p-3 border-b border-neutral-800 flex items-center justify-between flex-shrink-0">
+                    <div className="flex items-center gap-2">
+                      {conversations.find(c => c.callId === selectedConv)?.callerAvatarUrl ? (
+                        <img 
+                          src={conversations.find(c => c.callId === selectedConv)?.callerAvatarUrl || ''} 
+                          alt="Avatar" 
+                          className="w-8 h-8 rounded-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-neutral-700 flex items-center justify-center">
+                          <MessageSquare className="w-4 h-4 text-white/50" />
+                        </div>
+                      )}
+                      <h3 className="text-xs font-semibold text-white">
+                        {conversations.find(c => c.callId === selectedConv)?.callerName || 'Conversa'}
+                      </h3>
+                    </div>
                     {conversations.find(c => c.callId === selectedConv)?.active && (
                       <span className="text-[9px] px-2 py-0.5 bg-green-900/30 text-green-400 border border-green-800/50 rounded">
                         Ativa
@@ -1255,9 +1290,24 @@ export default function DashboardPage() {
                   }}
                 />
               </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">Foto de Perfil (opcional)</label>
+                <Input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setNewChatAvatar(e.target.files?.[0] || null)}
+                  className="h-9 text-xs bg-neutral-800 border-neutral-700 text-white/70 file:mr-4 file:rounded file:border-0 file:bg-[#d61f1f] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white hover:file:bg-[#b91c1c]"
+                />
+                {newChatAvatar && (
+                  <p className="text-xs text-gray-500 mt-1">{newChatAvatar.name}</p>
+                )}
+              </div>
               <div className="flex gap-3">
                 <button
-                  onClick={() => setShowNewChatModal(false)}
+                  onClick={() => {
+                    setShowNewChatModal(false);
+                    setNewChatAvatar(null);
+                  }}
                   className="flex-1 px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg transition-colors"
                 >
                   Cancelar

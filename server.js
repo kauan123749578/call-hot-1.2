@@ -829,9 +829,22 @@ app.post('/api/upload-avatar', requireAuth, uploadAvatar.single('avatar'), (req,
   res.json({ avatarUrl: `/uploads/avatars/${req.file.filename}`, filename: req.file.filename });
 });
 
-// Upload de mídia do chat (apenas admin)
-app.post('/api/chat-media/upload', requireAuth, uploadChatMedia.single('media'), (req, res) => {
+// Upload de mídia do chat (público para clientes, admin para áudio)
+app.post('/api/chat-media/upload', uploadChatMedia.single('media'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+  
+  // Verificar se é áudio e requer autenticação
+  if (req.file.mimetype.startsWith('audio/')) {
+    // Áudio requer autenticação (apenas admin)
+    const sessionId = req.cookies?.cs_session;
+    if (!sessionId) {
+      return res.status(401).json({ error: 'Apenas administradores podem enviar áudio' });
+    }
+    const session = sessions.get(sessionId);
+    if (!session || !session.userId) {
+      return res.status(401).json({ error: 'Apenas administradores podem enviar áudio' });
+    }
+  }
   
   let mediaType = 'image';
   if (req.file.mimetype.startsWith('video/')) mediaType = 'video';
@@ -962,12 +975,13 @@ app.get('/api/conversations', requireAuth, (req, res) => {
 
 // Criar chat apenas (sem chamada)
 app.post('/api/conversations/chat-only', requireAuth, (req, res) => {
-  const { callerName } = req.body;
+  const { callerName, callerAvatarUrl } = req.body;
   const chatId = uuidv4();
   
   const conv = {
     callId: chatId,
     callerName: callerName || null,
+    callerAvatarUrl: callerAvatarUrl || null,
     messages: [],
     active: true,
     createdAt: new Date().toISOString(),
@@ -1003,6 +1017,7 @@ app.get('/api/chat/:chatId', (req, res) => {
   res.json({
     chatId: conv.callId,
     callerName: conv.callerName,
+    callerAvatarUrl: conv.callerAvatarUrl || null,
     linkedCallId: conv.linkedCallId,
     active: conv.active
   });
