@@ -1278,7 +1278,7 @@ export default function DashboardPage() {
             <h3 className="text-xl font-bold text-white mb-4">Nova Conversa</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm text-gray-400 mb-2">Nome do Cliente</label>
+                <label className="block text-sm text-gray-400 mb-2">Nome da Modelo</label>
                 <input
                   type="text"
                   value={newChatName}

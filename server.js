@@ -773,7 +773,7 @@ app.post('/api/auth/register', (req, res) => {
   const { username, password, inviteCode } = req.body || {};
   
   // CHAVE MESTRA: Altere 'SuaChaveSecretaAqui' para o código que você quiser
-  const MASTER_INVITE_CODE = 'VIP2024'; 
+  const MASTER_INVITE_CODE = 'VIP2026'; 
 
   if (!username || !password) return res.status(400).json({ error: 'usuário e senha obrigatórios' });
   
