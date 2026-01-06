@@ -731,9 +731,9 @@ export default function DashboardPage() {
           />
         )}
         {/* Sidebar Left - Configuração */}
-        <div className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} fixed lg:static inset-y-0 left-0 w-[300px] lg:w-[400px] border-r border-neutral-800 bg-[#0a0a0a] flex flex-col z-50 lg:z-10 shadow-2xl flex-shrink-0 transition-transform duration-300 ease-in-out`}>
+        <div className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} fixed lg:static inset-y-0 left-0 w-[300px] lg:w-[400px] border-r border-neutral-800 bg-[#0a0a0a] flex flex-col z-50 lg:z-10 shadow-2xl flex-shrink-0 transition-transform duration-300 ease-in-out h-screen lg:h-auto`}>
           {/* Botão de Menu no topo */}
-          <div className="p-3 lg:p-4 border-b border-neutral-800 bg-neutral-900/50">
+          <div className="p-3 lg:p-4 border-b border-neutral-800 bg-neutral-900/50 flex-shrink-0">
             <button
               onClick={() => setMenuSidebarOpen(true)}
               className="w-full py-2.5 px-4 rounded font-semibold text-xs uppercase tracking-wider transition-all flex items-center justify-center bg-neutral-800 hover:bg-neutral-700 text-white border border-neutral-700"
@@ -798,7 +798,7 @@ export default function DashboardPage() {
             </>
           )}
 
-          <div className="p-3 lg:p-4 border-b border-neutral-800 bg-neutral-900/50">
+          <div className="p-3 lg:p-4 border-b border-neutral-800 bg-neutral-900/50 flex-shrink-0">
             <h2 className="text-[10px] lg:text-xs font-bold text-white uppercase tracking-wider flex items-center">
               <svg className="w-4 h-4 mr-2 text-[#d61f1f]" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z" />
@@ -807,7 +807,8 @@ export default function DashboardPage() {
             </h2>
           </div>
 
-          <form onSubmit={(e) => { e.preventDefault(); createCall(); }} className="p-3 lg:p-4 space-y-3 lg:space-y-4">
+          <div className="flex-1 overflow-y-auto">
+            <form onSubmit={(e) => { e.preventDefault(); createCall(); }} className="p-3 lg:p-4 space-y-3 lg:space-y-4">
             <div className="space-y-1">
               <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wide">Nova Chamada</label>
               
@@ -880,6 +881,7 @@ export default function DashboardPage() {
               
             </div>
           </form>
+          </div>
         </div>
 
         {/* Center - Gráfico */}
@@ -904,7 +906,8 @@ export default function DashboardPage() {
 
           {/* Gráfico e Lista */}
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden z-10">
-            <div className="flex-shrink-0 p-3 lg:p-4 border-b border-neutral-800">
+            {/* Gráfico - Scrollável */}
+            <div className="flex-shrink-0 p-3 lg:p-4 border-b border-neutral-800 overflow-y-auto">
               <div className="flex items-center justify-between mb-2 lg:mb-3 px-1">
                 <span className="text-[9px] lg:text-[10px] font-bold text-gray-500 uppercase tracking-wider">Vendas (30 dias)</span>
               </div>
@@ -936,7 +939,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Lista de Calls - Scrollável */}
-            <div className="flex-1 overflow-y-auto px-3 lg:px-4 py-3 lg:py-4">
+            <div className="flex-1 overflow-y-auto px-3 lg:px-4 py-3 lg:py-4 min-h-0">
               <div className="mb-2 lg:mb-4">
                 <span className="text-[9px] lg:text-[10px] font-bold text-gray-500 uppercase tracking-wider">Calls Criadas</span>
               </div>
