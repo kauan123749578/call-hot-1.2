@@ -12,6 +12,22 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const TelegramBot = require('node-telegram-bot-api');
 
+// PostgreSQL modules
+const { initDatabase } = require('./lib/db');
+const { 
+  findUserByUsernameOrEmail, 
+  findUserById, 
+  userExists, 
+  createUser, 
+  verifyPassword 
+} = require('./lib/users');
+const { 
+  createSession, 
+  findSession, 
+  deleteSession,
+  SESSION_MAX_AGE_MS 
+} = require('./lib/sessions');
+
 const app = express();
 const server = http.createServer(app);
 
@@ -741,81 +757,137 @@ app.use(cookieParser());
 
 // Auth helpers
 const SESSION_COOKIE = 'cs_session';
-const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
-function getSession(sessionId) {
-  const store = readJson(sessionsFile, { sessions: [] });
-  const s = (store.sessions || []).find((x) => x && x.sessionId === sessionId);
-  if (!s) return null;
-  if (Date.now() - new Date(s.createdAt).getTime() > SESSION_MAX_AGE_MS) return null;
-  return s;
+// Função async para buscar sessão
+async function getSession(sessionId) {
+  if (!sessionId) return null;
+  try {
+    return await findSession(sessionId);
+  } catch (error) {
+    console.error('Erro ao buscar sessão:', error);
+    return null;
+  }
 }
 
+// Middleware de autenticação (agora async)
 function requireAuth(req, res, nextFn) {
   const sid = req.cookies?.[SESSION_COOKIE];
-  const s = sid ? getSession(sid) : null;
-  if (!s) return res.status(401).json({ error: 'Não autenticado' });
-  req.userId = s.userId;
-  nextFn();
+  if (!sid) {
+    return res.status(401).json({ error: 'Não autenticado' });
+  }
+  
+  getSession(sid)
+    .then(s => {
+      if (!s) {
+        return res.status(401).json({ error: 'Não autenticado' });
+      }
+      req.userId = s.userId;
+      nextFn();
+    })
+    .catch(err => {
+      console.error('Erro na autenticação:', err);
+      res.status(500).json({ error: 'Erro interno' });
+    });
 }
 
-function setSession(res, userId) {
-  const store = readJson(sessionsFile, { sessions: [] });
-  const sessionId = crypto.randomBytes(24).toString('hex');
-  store.sessions = Array.isArray(store.sessions) ? store.sessions : [];
-  store.sessions.push({ sessionId, userId, createdAt: new Date().toISOString() });
-  writeJson(sessionsFile, store);
-  res.cookie(SESSION_COOKIE, sessionId, { httpOnly: true, sameSite: 'lax', secure: false, maxAge: SESSION_MAX_AGE_MS });
+// Função async para criar sessão
+async function setSession(res, userId) {
+  try {
+    const session = await createSession(userId);
+    res.cookie(SESSION_COOKIE, session.sessionId, { 
+      httpOnly: true, 
+      sameSite: 'lax', 
+      secure: process.env.NODE_ENV === 'production', 
+      maxAge: SESSION_MAX_AGE_MS 
+    });
+    return session;
+  } catch (error) {
+    console.error('Erro ao criar sessão:', error);
+    throw error;
+  }
 }
 
 // --- API AUTH ---
-app.post('/api/auth/register', (req, res) => {
-  const { username, password, inviteCode } = req.body || {};
-  
-  // CHAVE MESTRA: Altere 'SuaChaveSecretaAqui' para o código que você quiser
-  const MASTER_INVITE_CODE = 'VIP2026'; 
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { username, password, inviteCode } = req.body || {};
+    
+    // CHAVE MESTRA: Altere 'SuaChaveSecretaAqui' para o código que você quiser
+    const MASTER_INVITE_CODE = 'VIP2026'; 
 
-  if (!username || !password) return res.status(400).json({ error: 'usuário e senha obrigatórios' });
-  
-  if (inviteCode !== MASTER_INVITE_CODE) {
-    return res.status(403).json({ error: 'Código de convite inválido. Acesso restrito.' });
+    if (!username || !password) {
+      return res.status(400).json({ error: 'usuário e senha obrigatórios' });
+    }
+    
+    if (inviteCode !== MASTER_INVITE_CODE) {
+      return res.status(403).json({ error: 'Código de convite inválido. Acesso restrito.' });
+    }
+    
+    // Verificar se usuário já existe
+    const exists = await userExists(username);
+    if (exists) {
+      return res.status(409).json({ error: 'Usuário já existe' });
+    }
+    
+    // Criar usuário
+    const user = await createUser(username, password);
+    await setSession(res, user.userId);
+    
+    res.json({ ok: true, userId: user.userId, username: user.username });
+  } catch (error) {
+    console.error('Erro no registro:', error);
+    res.status(500).json({ error: 'Erro ao criar usuário' });
   }
-  
-  const store = readJson(usersFile, { users: [] });
-  const exists = (store.users || []).some(u => u && (u.username || u.email || '').toLowerCase() === String(username).toLowerCase());
-  
-  if (exists) return res.status(409).json({ error: 'Usuário já existe' });
-  
-  const userId = uuidv4();
-  store.users.push({ userId, username, passwordHash: bcrypt.hashSync(String(password), 10), createdAt: new Date().toISOString() });
-  writeJson(usersFile, store);
-  setSession(res, userId);
-  res.json({ ok: true, userId, username });
 });
 
-app.post('/api/auth/login', (req, res) => {
-  const { username, password } = req.body || {};
-  if (!username || !password) return res.status(400).json({ error: 'usuário e senha obrigatórios' });
-  
-  const store = readJson(usersFile, { users: [] });
-  const user = (store.users || []).find(u => u && (u.username || u.email || '').toLowerCase() === String(username).toLowerCase());
-  
-  if (!user || !bcrypt.compareSync(String(password), user.passwordHash)) {
-    return res.status(401).json({ error: 'Credenciais inválidas' });
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+    if (!username || !password) {
+      return res.status(400).json({ error: 'usuário e senha obrigatórios' });
+    }
+    
+    // Buscar usuário
+    const user = await findUserByUsernameOrEmail(username);
+    
+    if (!user || !verifyPassword(password, user.password_hash)) {
+      return res.status(401).json({ error: 'Credenciais inválidas' });
+    }
+    
+    await setSession(res, user.user_id);
+    res.json({ 
+      ok: true, 
+      userId: user.user_id, 
+      username: user.username || user.email 
+    });
+  } catch (error) {
+    console.error('Erro no login:', error);
+    res.status(500).json({ error: 'Erro ao fazer login' });
   }
-  
-  setSession(res, user.userId);
-  res.json({ ok: true, userId: user.userId, username: user.username || user.email });
 });
 
-app.get('/api/auth/me', (req, res) => {
-  const sid = req.cookies?.[SESSION_COOKIE];
-  const s = sid ? getSession(sid) : null;
-  if (!s) return res.status(401).json({ error: 'Não autenticado' });
-  const store = readJson(usersFile, { users: [] });
-  const user = (store.users || []).find(u => u && u.userId === s.userId);
-  if (!user) return res.status(401).json({ error: 'Usuário não encontrado' });
-  res.json({ ok: true, userId: user.userId, username: user.username || user.email });
+app.get('/api/auth/me', async (req, res) => {
+  try {
+    const sid = req.cookies?.[SESSION_COOKIE];
+    const s = sid ? await getSession(sid) : null;
+    if (!s) {
+      return res.status(401).json({ error: 'Não autenticado' });
+    }
+    
+    const user = await findUserById(s.userId);
+    if (!user) {
+      return res.status(401).json({ error: 'Usuário não encontrado' });
+    }
+    
+    res.json({ 
+      ok: true, 
+      userId: user.user_id, 
+      username: user.username || user.email 
+    });
+  } catch (error) {
+    console.error('Erro ao buscar usuário:', error);
+    res.status(500).json({ error: 'Erro interno' });
+  }
 });
 
 // --- API UPLOADS ---
@@ -1588,6 +1660,15 @@ app.all('*', (req, res) => nextHandler(req, res));
 const PORT = 3000; // Sempre usa 3000 para este projeto
 const HOST = process.env.HOST || '0.0.0.0';
 async function start() {
+  // Inicializar banco de dados PostgreSQL
+  try {
+    await initDatabase();
+    console.log('✅ Banco de dados PostgreSQL inicializado');
+  } catch (error) {
+    console.error('❌ Erro ao inicializar banco de dados:', error);
+    console.error('⚠️  O servidor continuará, mas funcionalidades de autenticação podem não funcionar');
+  }
+  
   loadCallsFromDisk();
   loadAutomationsFromDisk();
   loadTelegramBots();
