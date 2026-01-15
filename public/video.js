@@ -31,7 +31,6 @@
     const overlay = document.getElementById('startOverlay');
     const startBtn = document.getElementById('startBtn');
     const endedOverlay = document.getElementById('endedOverlay');
-    const endedBtn = document.getElementById('endedBtn');
     const hangupBtn = document.getElementById('hangupBtn');
     const cameraBtn = document.getElementById('cameraBtn');
     const micBtn = document.getElementById('micBtn');
@@ -284,16 +283,6 @@
     
     // Conectar WebSocket do chat
     connectChatWebSocket();
-
-    endedBtn?.addEventListener('click', () => {
-      // Encerrar por completo: tenta fechar a aba. Se o browser bloquear, manda pra Home.
-      try {
-        window.close();
-      } catch {}
-      setTimeout(() => {
-        if (!window.closed) window.location.href = '/';
-      }, 200);
-    });
 
     setStatus('Carregando...');
 
