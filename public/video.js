@@ -64,10 +64,12 @@
     }
 
     if (!callId) {
-      setStatus('Call inválida');
-      overlay.classList.remove('hidden');
-      startBtn.textContent = 'Voltar';
-      startBtn.onclick = () => window.location.href = '/';
+      // Call ID inválido - mostrar modal de encerramento sem redirecionar
+      mainVideo.style.display = 'none';
+      document.querySelector('.controls')?.style.setProperty('display', 'none');
+      document.querySelector('.topbar')?.style.setProperty('display', 'none');
+      document.getElementById('selfPreviewWrap')?.style.setProperty('display', 'none');
+      endedOverlay.classList.remove('hidden');
       return;
     }
 
@@ -290,10 +292,12 @@
       const resp = await fetch(`/api/call/${encodeURIComponent(callId)}`);
       const data = await resp.json();
       if (!resp.ok) {
-        setStatus('Call não encontrada');
-        overlay.classList.remove('hidden');
-        startBtn.textContent = 'Voltar';
-        startBtn.onclick = () => window.location.href = '/';
+        // Call não encontrada - mostrar modal de encerramento sem redirecionar
+        mainVideo.style.display = 'none';
+        document.querySelector('.controls')?.style.setProperty('display', 'none');
+        document.querySelector('.topbar')?.style.setProperty('display', 'none');
+        document.getElementById('selfPreviewWrap')?.style.setProperty('display', 'none');
+        endedOverlay.classList.remove('hidden');
         return;
       }
 
@@ -325,8 +329,14 @@
       // Verificar se já assistiu o vídeo antes (ANTES de carregar)
       try {
         if (sessionStorage.getItem(`video_watched_${callId}`) === 'true') {
-          // Se já assistiu, redirecionar imediatamente
-          window.location.href = '/';
+          // Se já assistiu, mostrar modal de encerramento sem redirecionar
+          videoEnded = true;
+          hasWatchedVideo = true;
+          mainVideo.style.display = 'none';
+          document.querySelector('.controls')?.style.setProperty('display', 'none');
+          document.querySelector('.topbar')?.style.setProperty('display', 'none');
+          document.getElementById('selfPreviewWrap')?.style.setProperty('display', 'none');
+          endedOverlay.classList.remove('hidden');
           return;
         }
       } catch {}
@@ -372,11 +382,12 @@
       if (ok) startTimer();
 
       mainVideo.addEventListener('error', () => {
-        setStatus('Erro ao carregar vídeo');
-        overlay.classList.remove('hidden');
-        document.querySelector('.overlay-sub').textContent = 'Não foi possível carregar o vídeo dessa call.';
-        startBtn.textContent = 'Voltar';
-        startBtn.onclick = () => window.location.href = '/';
+        // Erro ao carregar vídeo - mostrar modal de encerramento sem redirecionar
+        mainVideo.style.display = 'none';
+        document.querySelector('.controls')?.style.setProperty('display', 'none');
+        document.querySelector('.topbar')?.style.setProperty('display', 'none');
+        document.getElementById('selfPreviewWrap')?.style.setProperty('display', 'none');
+        endedOverlay.classList.remove('hidden');
       });
     } catch {
       setStatus('Erro de rede');
