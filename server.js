@@ -12,7 +12,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const TelegramBot = require('node-telegram-bot-api');
 
-// PostgreSQL modules
+// PostgreSQL modules (com fallback para JSON)
 const { initDatabase } = require('./lib/db');
 const { 
   findUserByUsernameOrEmail, 
@@ -20,13 +20,13 @@ const {
   userExists, 
   createUser, 
   verifyPassword 
-} = require('./lib/users');
+} = require('./lib/users-hybrid');
 const { 
   createSession, 
   findSession, 
   deleteSession,
   SESSION_MAX_AGE_MS 
-} = require('./lib/sessions');
+} = require('./lib/sessions-hybrid');
 
 const app = express();
 const server = http.createServer(app);
@@ -1665,13 +1665,15 @@ app.all('*', (req, res) => nextHandler(req, res));
 const PORT = 3000; // Sempre usa 3000 para este projeto
 const HOST = process.env.HOST || '0.0.0.0';
 async function start() {
-  // Inicializar banco de dados PostgreSQL
+  // Inicializar banco de dados PostgreSQL (opcional - tem fallback para JSON)
   try {
     await initDatabase();
     console.log('✅ Banco de dados PostgreSQL inicializado');
+    console.log('💾 Modo: PostgreSQL + backup em JSON');
   } catch (error) {
-    console.error('❌ Erro ao inicializar banco de dados:', error);
-    console.error('⚠️  O servidor continuará, mas funcionalidades de autenticação podem não funcionar');
+    console.error('⚠️  PostgreSQL não disponível, usando arquivos JSON');
+    console.log('💾 Modo: Apenas arquivos JSON (dados persistem mesmo sem banco)');
+    console.log('📝 Os dados serão salvos em: data/users.json e data/sessions.json');
   }
   
   loadCallsFromDisk();
@@ -1681,6 +1683,7 @@ async function start() {
   await nextApp.prepare();
   server.listen(PORT, HOST, () => {
     console.log(`🚀 Rodando na porta ${PORT} (host: ${HOST})`);
+    console.log('✅ Sistema de autenticação funcionando (PostgreSQL ou JSON)');
   });
 }
 start().catch(e => {
