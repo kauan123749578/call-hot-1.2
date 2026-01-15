@@ -794,12 +794,15 @@ function requireAuth(req, res, nextFn) {
 async function setSession(res, userId) {
   try {
     const session = await createSession(userId);
-    res.cookie(SESSION_COOKIE, session.sessionId, { 
-      httpOnly: true, 
-      sameSite: 'lax', 
-      secure: process.env.NODE_ENV === 'production', 
-      maxAge: SESSION_MAX_AGE_MS 
-    });
+    // Configurar cookie com duração de 30 dias
+    const cookieOptions = {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: SESSION_MAX_AGE_MS, // 30 dias em milissegundos
+      path: '/', // Disponível em todo o site
+    };
+    res.cookie(SESSION_COOKIE, session.sessionId, cookieOptions);
     return session;
   } catch (error) {
     console.error('Erro ao criar sessão:', error);
@@ -855,19 +858,41 @@ app.post('/api/auth/login', async (req, res) => {
     // Buscar usuário
     const user = await findUserByUsernameOrEmail(username);
     
-    if (!user || !verifyPassword(password, user.password_hash)) {
+    if (!user) {
       return res.status(401).json({ error: 'Credenciais inválidas' });
     }
     
-    await setSession(res, user.user_id);
+    // Normalizar passwordHash (pode vir como password_hash do PostgreSQL ou passwordHash do JSON)
+    const passwordHash = user.password_hash || user.passwordHash;
+    if (!passwordHash) {
+      console.error('Usuário sem hash de senha:', user);
+      return res.status(500).json({ error: 'Erro interno: usuário inválido' });
+    }
+    
+    if (!verifyPassword(password, passwordHash)) {
+      return res.status(401).json({ error: 'Credenciais inválidas' });
+    }
+    
+    // Normalizar userId (pode vir como user_id do PostgreSQL ou userId do JSON)
+    const userId = user.user_id || user.userId;
+    if (!userId) {
+      console.error('Usuário sem ID:', user);
+      return res.status(500).json({ error: 'Erro interno: usuário sem ID' });
+    }
+    
+    await setSession(res, userId);
     res.json({ 
       ok: true, 
-      userId: user.user_id, 
+      userId: userId, 
       username: user.username || user.email 
     });
   } catch (error) {
     console.error('Erro no login:', error);
-    res.status(500).json({ error: 'Erro ao fazer login' });
+    console.error('Stack trace:', error.stack);
+    const errorMessage = process.env.NODE_ENV === 'development' 
+      ? `Erro ao fazer login: ${error.message}` 
+      : 'Erro ao fazer login';
+    res.status(500).json({ error: errorMessage });
   }
 });
 
