@@ -836,7 +836,12 @@ app.post('/api/auth/register', async (req, res) => {
     res.json({ ok: true, userId: user.userId, username: user.username });
   } catch (error) {
     console.error('Erro no registro:', error);
-    res.status(500).json({ error: 'Erro ao criar usuário' });
+    console.error('Stack trace:', error.stack);
+    // Retornar mensagem de erro mais detalhada em desenvolvimento
+    const errorMessage = process.env.NODE_ENV === 'development' 
+      ? `Erro ao criar usuário: ${error.message}` 
+      : 'Erro ao criar usuário';
+    res.status(500).json({ error: errorMessage });
   }
 });
 
