@@ -14,6 +14,7 @@ function RegisterForm() {
   const next = params.get("next") || "/";
 
   const [username, setUsername] = React.useState("");
+  const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [inviteCode, setInviteCode] = React.useState("");
   const [showPassword, setShowPassword] = React.useState(false);
@@ -28,7 +29,7 @@ function RegisterForm() {
       const resp = await apiFetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password, inviteCode })
+        body: JSON.stringify({ username, email, password, inviteCode })
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data?.error || "Erro ao criar conta");
@@ -49,6 +50,19 @@ function RegisterForm() {
           onChange={(e) => setUsername(e.target.value)}
           placeholder="Ex: joao_silva"
           type="text"
+          className="h-12 border-neutral-800 bg-black text-white placeholder:text-gray-600 focus:border-[#d61f1f] transition-all"
+          disabled={loading}
+          required
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Email</label>
+        <Input
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="seu@email.com"
+          type="email"
           className="h-12 border-neutral-800 bg-black text-white placeholder:text-gray-600 focus:border-[#d61f1f] transition-all"
           disabled={loading}
           required

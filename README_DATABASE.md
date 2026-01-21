@@ -127,3 +127,5 @@ node scripts/migrate-to-postgres.js
 - Você pode removê-los após confirmar que tudo está funcionando
 - As sessões expiram automaticamente após 30 dias
 
+
+

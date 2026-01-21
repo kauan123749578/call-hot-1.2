@@ -11,6 +11,11 @@ const cookieParser = require('cookie-parser');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const TelegramBot = require('node-telegram-bot-api');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const session = require('express-session');
+const passport = require('passport');
+const validator = require('validator');
 
 // PostgreSQL modules (com fallback para JSON)
 const { initDatabase } = require('./lib/db');
@@ -27,6 +32,22 @@ const {
   deleteSession,
   SESSION_MAX_AGE_MS 
 } = require('./lib/sessions-hybrid');
+const { 
+  createShortLink, 
+  getShortLink, 
+  getUserShortLinks,
+  deleteShortLink 
+} = require('./lib/short-links');
+const { 
+  createPasswordResetToken, 
+  validateResetToken, 
+  markTokenAsUsed 
+} = require('./lib/password-reset');
+const { 
+  sendPasswordResetEmail, 
+  sendWelcomeEmail 
+} = require('./lib/email');
+const googleAuth = require('./lib/google-auth');
 
 const app = express();
 const server = http.createServer(app);
@@ -750,10 +771,50 @@ const uploadChatMedia = multer({
 });
 
 // Middleware Global
+app.use(helmet({
+  contentSecurityPolicy: false, // Desabilitar CSP para permitir Next.js
+  crossOriginEmbedderPolicy: false
+}));
 app.use(cors());
 app.use(express.json({ limit: '1000mb' }));
 app.use(express.urlencoded({ limit: '1000mb', extended: true }));
 app.use(cookieParser());
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 100, // máximo 100 requests por IP
+  message: 'Muitas requisições deste IP, tente novamente mais tarde.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/', limiter);
+
+// Rate limiting mais restritivo para login/registro
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5, // máximo 5 tentativas por IP
+  message: 'Muitas tentativas de login. Tente novamente em 15 minutos.',
+});
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
+
+// Configurar sessão para Passport
+app.use(session({
+  secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 dias
+    sameSite: 'lax'
+  }
+}));
+
+// Inicializar Passport
+app.use(passport.initialize());
+app.use(passport.session());
 
 // Auth helpers
 const SESSION_COOKIE = 'cs_session';
@@ -813,34 +874,52 @@ async function setSession(res, userId) {
 // --- API AUTH ---
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { username, password, inviteCode } = req.body || {};
+    const { username, email, password, inviteCode } = req.body || {};
     
     // CHAVE MESTRA: Altere 'SuaChaveSecretaAqui' para o código que você quiser
     const MASTER_INVITE_CODE = 'VIP2026'; 
 
-    if (!username || !password) {
-      return res.status(400).json({ error: 'usuário e senha obrigatórios' });
+    if (!username || !email || !password) {
+      return res.status(400).json({ error: 'usuário, email e senha são obrigatórios' });
+    }
+
+    // Validar email
+    if (!validator.isEmail(email)) {
+      return res.status(400).json({ error: 'Email inválido' });
+    }
+
+    // Validar senha (mínimo 6 caracteres)
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Senha deve ter no mínimo 6 caracteres' });
     }
     
     if (inviteCode !== MASTER_INVITE_CODE) {
       return res.status(403).json({ error: 'Código de convite inválido. Acesso restrito.' });
     }
     
-    // Verificar se usuário já existe
-    const exists = await userExists(username);
-    if (exists) {
-      return res.status(409).json({ error: 'Usuário já existe' });
+    // Verificar se usuário ou email já existe
+    const userExistsCheck = await userExists(username);
+    const emailExistsCheck = await userExists(email);
+    if (userExistsCheck || emailExistsCheck) {
+      return res.status(409).json({ error: 'Usuário ou email já cadastrado' });
     }
     
-    // Criar usuário
-    const user = await createUser(username, password);
+    // Criar usuário com email
+    const user = await createUser(username, password, email);
     await setSession(res, user.userId);
     
-    res.json({ ok: true, userId: user.userId, username: user.username });
+    // Enviar email de boas-vindas
+    try {
+      await sendWelcomeEmail(email, username);
+    } catch (emailError) {
+      console.error('Erro ao enviar email de boas-vindas:', emailError);
+      // Não falhar o registro se o email falhar
+    }
+    
+    res.json({ ok: true, userId: user.userId, username: user.username, email: user.email });
   } catch (error) {
     console.error('Erro no registro:', error);
     console.error('Stack trace:', error.stack);
-    // Retornar mensagem de erro mais detalhada em desenvolvimento
     const errorMessage = process.env.NODE_ENV === 'development' 
       ? `Erro ao criar usuário: ${error.message}` 
       : 'Erro ao criar usuário';
@@ -931,6 +1010,135 @@ app.get('/api/auth/me', async (req, res) => {
   }
 });
 
+// --- GOOGLE OAUTH ---
+app.get('/api/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+
+app.get('/api/auth/google/callback',
+  passport.authenticate('google', { failureRedirect: '/login?error=google_auth_failed' }),
+  async (req, res) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.redirect('/login?error=user_not_found');
+      }
+      
+      // Criar sessão
+      await setSession(res, user.user_id);
+      res.redirect('/');
+    } catch (error) {
+      console.error('Erro no callback do Google:', error);
+      res.redirect('/login?error=session_error');
+    }
+  }
+);
+
+// --- RECUPERAÇÃO DE SENHA ---
+app.post('/api/auth/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email || !validator.isEmail(email)) {
+      return res.status(400).json({ error: 'Email inválido' });
+    }
+
+    const user = await findUserByUsernameOrEmail(email);
+    if (!user) {
+      // Por segurança, não revelar se o email existe ou não
+      return res.json({ ok: true, message: 'Se o email existir, você receberá instruções para recuperar sua senha.' });
+    }
+
+    // Criar token de recuperação
+    const resetToken = await createPasswordResetToken(user.user_id || user.userId);
+    
+    // Enviar email
+    const baseUrl = req.protocol + '://' + req.get('host');
+    await sendPasswordResetEmail(email, resetToken, baseUrl);
+
+    res.json({ ok: true, message: 'Se o email existir, você receberá instruções para recuperar sua senha.' });
+  } catch (error) {
+    console.error('Erro ao processar recuperação de senha:', error);
+    res.status(500).json({ error: 'Erro ao processar solicitação' });
+  }
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+    if (!token || !newPassword) {
+      return res.status(400).json({ error: 'Token e nova senha são obrigatórios' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'Senha deve ter no mínimo 6 caracteres' });
+    }
+
+    // Validar token
+    const resetData = await validateResetToken(token);
+    if (!resetData) {
+      return res.status(400).json({ error: 'Token inválido ou expirado' });
+    }
+
+    // Atualizar senha
+    const passwordHash = bcrypt.hashSync(newPassword, 10);
+    const { query } = require('./lib/db');
+    await query(
+      'UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2',
+      [passwordHash, resetData.user_id]
+    );
+
+    // Marcar token como usado
+    await markTokenAsUsed(token);
+
+    res.json({ ok: true, message: 'Senha redefinida com sucesso' });
+  } catch (error) {
+    console.error('Erro ao redefinir senha:', error);
+    res.status(500).json({ error: 'Erro ao redefinir senha' });
+  }
+});
+
+// --- LINKS CURTOS ---
+app.get('/s/:shortCode', async (req, res) => {
+  try {
+    const { shortCode } = req.params;
+    const link = await getShortLink(shortCode);
+    
+    if (!link) {
+      return res.status(404).send('Link não encontrado ou expirado');
+    }
+
+    // Redirecionar para o link original
+    res.redirect(link.original_url);
+  } catch (error) {
+    console.error('Erro ao buscar link curto:', error);
+    res.status(500).send('Erro ao processar link');
+  }
+});
+
+app.get('/api/short-links', requireAuth, async (req, res) => {
+  try {
+    const links = await getUserShortLinks(req.userId);
+    res.json({ links });
+  } catch (error) {
+    console.error('Erro ao listar links curtos:', error);
+    res.status(500).json({ error: 'Erro ao listar links' });
+  }
+});
+
+app.delete('/api/short-links/:shortCode', requireAuth, async (req, res) => {
+  try {
+    const { shortCode } = req.params;
+    const deleted = await deleteShortLink(shortCode, req.userId);
+    
+    if (!deleted) {
+      return res.status(404).json({ error: 'Link não encontrado' });
+    }
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Erro ao deletar link curto:', error);
+    res.status(500).json({ error: 'Erro ao deletar link' });
+  }
+});
+
 // --- API UPLOADS ---
 app.post('/api/upload-video', requireAuth, upload.single('video'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
@@ -971,31 +1179,63 @@ app.post('/api/chat-media/upload', uploadChatMedia.single('media'), (req, res) =
 });
 
 // --- API CALLS ---
-app.post('/api/create-call', requireAuth, (req, res) => {
-  const { videoUrl, callerName, callerAvatarUrl, title, expectedAmount } = req.body;
-  if (!videoUrl) return res.status(400).json({ error: 'videoUrl é obrigatório' });
-  
-  const callId = uuidv4();
-  const amt = parseCurrencyToNumber(expectedAmount);
-  
-  calls.set(callId, {
-    title: title || null,
-    videoUrl,
-    callerName: callerName || null,
-    callerAvatarUrl: callerAvatarUrl || null,
-    expiresAt: null,
-    expectedAmount: amt,
-    ownerUserId: req.userId,
-    hostId: null,
-    guests: new Set(),
-    createdAt: new Date()
-  });
-  
-  persistCalls();
-  appendEvent({ id: uuidv4(), type: 'call_created', callId, at: new Date().toISOString(), userId: req.userId });
-  if (amt) addSale({ callId, amount: amt, note: 'Venda registrada na criação', userId: req.userId });
-  
-  res.json({ callId, ringUrl: `/ring/${callId}` });
+app.post('/api/create-call', requireAuth, async (req, res) => {
+  try {
+    const { videoUrl, callerName, callerAvatarUrl, title, expectedAmount, useShortLink } = req.body;
+    if (!videoUrl) return res.status(400).json({ error: 'videoUrl é obrigatório' });
+    
+    const callId = uuidv4();
+    const amt = parseCurrencyToNumber(expectedAmount);
+    
+    // Salvar no banco de dados
+    const { query } = require('./lib/db');
+    await query(
+      `INSERT INTO calls (call_id, owner_user_id, title, video_url, caller_name, caller_avatar_url, expected_amount)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [callId, req.userId, title || null, videoUrl, callerName || null, callerAvatarUrl || null, amt]
+    );
+    
+    // Manter compatibilidade com sistema em memória
+    calls.set(callId, {
+      title: title || null,
+      videoUrl,
+      callerName: callerName || null,
+      callerAvatarUrl: callerAvatarUrl || null,
+      expiresAt: null,
+      expectedAmount: amt,
+      ownerUserId: req.userId,
+      hostId: null,
+      guests: new Set(),
+      createdAt: new Date()
+    });
+    
+    persistCalls();
+    appendEvent({ id: uuidv4(), type: 'call_created', callId, at: new Date().toISOString(), userId: req.userId });
+    if (amt) addSale({ callId, amount: amt, note: 'Venda registrada na criação', userId: req.userId });
+    
+    const baseUrl = req.protocol + '://' + req.get('host');
+    const originalUrl = `${baseUrl}/ring/${callId}`;
+    
+    let response = { callId, ringUrl: `/ring/${callId}` };
+    
+    // Criar link curto se solicitado
+    if (useShortLink) {
+      try {
+        const shortCode = await createShortLink(callId, originalUrl, req.userId);
+        const shortUrl = `${baseUrl}/s/${shortCode}`;
+        response.shortUrl = shortUrl;
+        response.shortCode = shortCode;
+      } catch (shortLinkError) {
+        console.error('Erro ao criar link curto:', shortLinkError);
+        // Continuar mesmo se o link curto falhar
+      }
+    }
+    
+    res.json(response);
+  } catch (error) {
+    console.error('Erro ao criar call:', error);
+    res.status(500).json({ error: 'Erro ao criar chamada' });
+  }
 });
 
 app.get('/api/calls', requireAuth, (req, res) => {
