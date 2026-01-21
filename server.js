@@ -855,39 +855,50 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'usuário e senha obrigatórios' });
     }
     
+    console.log(`🔐 Tentativa de login para usuário: ${username}`);
+    
     // Buscar usuário
     const user = await findUserByUsernameOrEmail(username);
     
     if (!user) {
+      console.log(`❌ Usuário não encontrado: ${username}`);
       return res.status(401).json({ error: 'Credenciais inválidas' });
     }
+    
+    console.log(`✅ Usuário encontrado: ${user.username || user.email} (ID: ${user.user_id || user.userId})`);
     
     // Normalizar passwordHash (pode vir como password_hash do PostgreSQL ou passwordHash do JSON)
     const passwordHash = user.password_hash || user.passwordHash;
     if (!passwordHash) {
-      console.error('Usuário sem hash de senha:', user);
+      console.error('❌ Usuário sem hash de senha:', { username: user.username, userId: user.user_id || user.userId });
       return res.status(500).json({ error: 'Erro interno: usuário inválido' });
     }
     
-    if (!verifyPassword(password, passwordHash)) {
+    // Verificar senha
+    const passwordValid = verifyPassword(password, passwordHash);
+    console.log(`🔑 Verificação de senha: ${passwordValid ? '✅ Válida' : '❌ Inválida'}`);
+    
+    if (!passwordValid) {
+      console.log(`❌ Senha inválida para usuário: ${username}`);
       return res.status(401).json({ error: 'Credenciais inválidas' });
     }
     
     // Normalizar userId (pode vir como user_id do PostgreSQL ou userId do JSON)
     const userId = user.user_id || user.userId;
     if (!userId) {
-      console.error('Usuário sem ID:', user);
+      console.error('❌ Usuário sem ID:', user);
       return res.status(500).json({ error: 'Erro interno: usuário sem ID' });
     }
     
     await setSession(res, userId);
+    console.log(`✅ Login bem-sucedido para: ${username}`);
     res.json({ 
       ok: true, 
       userId: userId, 
       username: user.username || user.email 
     });
   } catch (error) {
-    console.error('Erro no login:', error);
+    console.error('❌ Erro no login:', error);
     console.error('Stack trace:', error.stack);
     const errorMessage = process.env.NODE_ENV === 'development' 
       ? `Erro ao fazer login: ${error.message}` 
