@@ -89,6 +89,7 @@ export default function DashboardPage() {
   const [expectedAmount, setExpectedAmount] = React.useState<string>("");
   const [toast, setToast] = React.useState<string | null>(null);
   const [createdLink, setCreatedLink] = React.useState<string | null>(null);
+  const [createdShortLink, setCreatedShortLink] = React.useState<string | null>(null);
   const [createdCallAmount, setCreatedCallAmount] = React.useState<number | null>(null);
   const [progress, setProgress] = React.useState<{ percent: number; message: string; seconds: number } | null>(null);
   
@@ -558,7 +559,8 @@ export default function DashboardPage() {
           callerName: callerName || null,
           callerAvatarUrl: aUrl || null,
           title: title || null,
-          expectedAmount: expectedAmount || null
+          expectedAmount: expectedAmount || null,
+          useShortLink: true
         })
       });
       
@@ -577,6 +579,11 @@ export default function DashboardPage() {
       // O usuário usará o botão "Copiar" no modal que abre agora.
 
       setCreatedLink(link);
+      if (data.shortUrl) {
+        setCreatedShortLink(data.shortUrl);
+      } else {
+        setCreatedShortLink(null);
+      }
       if (data?.sale?.amount) {
         setCreatedCallAmount(Number(data.sale.amount));
         showToast("Link gerado! Veja abaixo.");
@@ -1237,30 +1244,56 @@ export default function DashboardPage() {
                 <div className="text-lg font-bold text-green-400">{fmtBRL(createdCallAmount)}</div>
               </div>
             )}
-            <div className="mb-4">
-              <label className="block text-xs text-gray-400 mb-2">Link da chamada:</label>
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={createdLink}
-                  className="flex-1 px-3 py-2 bg-black border border-neutral-800 rounded text-xs lg:text-sm text-white font-mono"
-                  onClick={(e) => e.currentTarget.select()}
-                />
-                <Button
-                  onClick={async () => {
-                    await navigator.clipboard.writeText(createdLink);
-                    showToast("Link copiado novamente");
-                  }}
-                  className="px-4 py-2 bg-[#d61f1f] hover:bg-[#b91c1c] text-white text-xs lg:text-sm whitespace-nowrap"
-                >
-                  Copiar
-                </Button>
+            <div className="mb-4 space-y-3">
+              {createdShortLink && (
+                <div>
+                  <label className="block text-xs text-gray-400 mb-2">🔗 Link Curto:</label>
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={createdShortLink}
+                      className="flex-1 px-3 py-2 bg-black border border-green-800/50 rounded text-xs lg:text-sm text-green-400 font-mono"
+                      onClick={(e) => e.currentTarget.select()}
+                    />
+                    <Button
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(createdShortLink);
+                        showToast("Link curto copiado!");
+                      }}
+                      className="px-4 py-2 bg-green-700 hover:bg-green-600 text-white text-xs lg:text-sm whitespace-nowrap"
+                    >
+                      Copiar
+                    </Button>
+                  </div>
+                </div>
+              )}
+              <div>
+                <label className="block text-xs text-gray-400 mb-2">Link Completo:</label>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={createdLink}
+                    className="flex-1 px-3 py-2 bg-black border border-neutral-800 rounded text-xs lg:text-sm text-white font-mono"
+                    onClick={(e) => e.currentTarget.select()}
+                  />
+                  <Button
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(createdLink);
+                      showToast("Link copiado!");
+                    }}
+                    className="px-4 py-2 bg-[#d61f1f] hover:bg-[#b91c1c] text-white text-xs lg:text-sm whitespace-nowrap"
+                  >
+                    Copiar
+                  </Button>
+                </div>
               </div>
             </div>
             <Button
               onClick={() => {
                 setCreatedLink(null);
+                setCreatedShortLink(null);
                 setCreatedCallAmount(null);
               }}
               className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 text-white text-xs lg:text-sm"
