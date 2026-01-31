@@ -68,10 +68,8 @@ Este script irá:
 |--------|------|-----------|
 | user_id | UUID | ID único do usuário (chave primária) |
 | username | VARCHAR(255) | Nome de usuário (único) |
-| email | VARCHAR(255) | Email (opcional) |
 | password_hash | VARCHAR(255) | Hash da senha (bcrypt) |
 | created_at | TIMESTAMP | Data de criação |
-| updated_at | TIMESTAMP | Data de última atualização |
 
 ### Tabela `sessions`
 
