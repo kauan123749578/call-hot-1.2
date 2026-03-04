@@ -291,6 +291,69 @@ function loadCallsFromDisk() {
   }
 }
 
+/** Carrega calls do PostgreSQL para a memória (para links ficarem ativos após restart/deploy) */
+async function loadCallsFromDb() {
+  try {
+    const { query } = require('./lib/db');
+    const result = await query(
+      `SELECT call_id, owner_user_id, title, video_url, caller_name, caller_avatar_url, expected_amount, automation_id, created_at, expires_at FROM calls`
+    );
+    if (!result.rows || result.rows.length === 0) return;
+    result.rows.forEach((row) => {
+      const callId = row.call_id;
+      const amt = row.expected_amount != null ? parseFloat(row.expected_amount) : null;
+      calls.set(callId, {
+        title: row.title || null,
+        videoUrl: row.video_url,
+        callerName: row.caller_name || null,
+        callerAvatarUrl: row.caller_avatar_url || null,
+        expiresAt: row.expires_at ? new Date(row.expires_at) : null,
+        expectedAmount: amt,
+        ownerUserId: row.owner_user_id,
+        automationId: row.automation_id || null,
+        hostId: null,
+        guests: new Set(),
+        createdAt: row.created_at ? new Date(row.created_at) : new Date()
+      });
+    });
+    console.log(`✅ ${result.rows.length} call(s) carregada(s) do PostgreSQL`);
+  } catch (e) {
+    console.error('Erro ao carregar calls do PostgreSQL:', e.message);
+  }
+}
+
+/** Busca uma call no PostgreSQL e coloca na memória (para GET /api/call/:callId) */
+async function getCallFromDbAndCache(callId) {
+  try {
+    const { query } = require('./lib/db');
+    const result = await query(
+      `SELECT call_id, owner_user_id, title, video_url, caller_name, caller_avatar_url, expected_amount, automation_id, created_at, expires_at FROM calls WHERE call_id = $1`,
+      [callId]
+    );
+    if (!result.rows || result.rows.length === 0) return null;
+    const row = result.rows[0];
+    const amt = row.expected_amount != null ? parseFloat(row.expected_amount) : null;
+    const call = {
+      title: row.title || null,
+      videoUrl: row.video_url,
+      callerName: row.caller_name || null,
+      callerAvatarUrl: row.caller_avatar_url || null,
+      expiresAt: row.expires_at ? new Date(row.expires_at) : null,
+      expectedAmount: amt,
+      ownerUserId: row.owner_user_id,
+      automationId: row.automation_id || null,
+      hostId: null,
+      guests: new Set(),
+      createdAt: row.created_at ? new Date(row.created_at) : new Date()
+    };
+    calls.set(callId, call);
+    return call;
+  } catch (e) {
+    console.error('Erro ao buscar call no PostgreSQL:', e.message);
+    return null;
+  }
+}
+
 // --- AUTOMAÇÕES ---
 function generateSecret() {
   return crypto.randomBytes(24).toString('hex');
@@ -954,8 +1017,9 @@ app.get('/api/calls', requireAuth, (req, res) => {
   res.json({ calls: list });
 });
 
-app.get('/api/call/:callId', (req, res) => {
-  const call = calls.get(req.params.callId);
+app.get('/api/call/:callId', async (req, res) => {
+  let call = calls.get(req.params.callId);
+  if (!call) call = await getCallFromDbAndCache(req.params.callId);
   if (!call) return res.status(404).json({ error: 'Call não encontrada' });
   if (isExpired(call)) return res.status(410).json({ error: 'Expirada' });
   res.json({
@@ -964,7 +1028,7 @@ app.get('/api/call/:callId', (req, res) => {
     videoUrl: call.videoUrl,
     callerName: call.callerName,
     callerAvatarUrl: call.callerAvatarUrl,
-    guestsCount: call.guests.size
+    guestsCount: call.guests ? call.guests.size : 0
   });
 });
 
@@ -1437,6 +1501,12 @@ app.get('/host/:callId', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'host.html'));
 });
 
+app.get('/ring/:callId', (req, res) => {
+  const p = path.join(__dirname, 'public', 'ring.html');
+  if (fs.existsSync(p)) res.sendFile(p);
+  else res.status(404).send('Página não encontrada');
+});
+
 // Rota Otimizada para Streaming de Vídeos Longos (DEVE VIR ANTES DO STATIC)
 app.get('/uploads/:filename', (req, res) => {
   const filePath = path.join(__dirname, 'public', 'uploads', req.params.filename);
@@ -1664,6 +1734,7 @@ async function start() {
   }
   
   loadCallsFromDisk();
+  await loadCallsFromDb();
   loadAutomationsFromDisk();
   loadTelegramBots();
   loadConversationsFromDisk();
