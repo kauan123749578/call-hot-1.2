@@ -28,7 +28,7 @@ function RegisterForm() {
       const resp = await apiFetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, email, password, inviteCode })
+        body: JSON.stringify({ username, password, inviteCode })
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data?.error || "Erro ao criar conta");
